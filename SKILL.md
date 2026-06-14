@@ -221,7 +221,7 @@ When a screen must follow the system appearance, never hardcode `.white`/`.black
 private var isDark: Bool { scheme == .dark }
 ```
 - **Text** → `.primary` / `.secondary` (auto-invert). Replace every `.white.opacity(x)` with `.primary.opacity(x)` / `.secondary`.
-- **Materials adapt for free** — `.ultraThinMaterial` is light in light mode, dark in dark mode. To force a *darker* frosted card (iOS notification look) layer a scheme-aware tint over it: `isDark ? .black.opacity(0.45) : .white.opacity(0.35)` — don't reach for a clear `glassEffect`, which reads light.
+- **Glass card — the official way (iOS 26):** use the real Liquid Glass API and **tint it dark** rather than faking glass with material — `.glassEffect(.regular.tint((isDark ? .black : .white).opacity(0.28)), in: shape)` keeps genuine specular + refraction while reading as a dark (or light) notification surface. Gate with `if #available(iOS 26.0, *)`; **fall back** to `.ultraThinMaterial` + a scheme-aware tint overlay (`isDark ? .black.opacity(0.45) : .white.opacity(0.35)`) on iOS 18–25. (A *plain untinted* `glassEffect` reads light — always tint for a dark surface; don't reach for material on iOS 26.)
 - **Gradients / strokes / shadows** → branch on `isDark` (e.g. navy bg in dark, blue-white in light; shadow `0.35` dark vs `0.12` light).
 - **Accent gradients** → lighten in dark, deepen in light, so the accent stays visible on both backgrounds.
 - A stored `let` can't read the environment — make scheme-dependent values **computed `var`s**.
@@ -749,7 +749,7 @@ card.scaleEffect(scale).opacity(opacity).offset(y: yOffset).zIndex(Double(count 
 - **Expand toggle:** `onTapGesture` on the stack flips `expanded` with `selectionChanged` haptic + `.spring(0.5/0.8)`.
 - **Swipe-to-dismiss (front only):** gate the `DragGesture` to `depth == 0`; rubber-band `dragOffset`, `lightImpact` on start, past ~120pt `removeFirst()` + `heavyImpact`, else spring back.
 - Each card `.transition(.asymmetric(insertion: .widthPop, removal: .move(edge: .top).combined(with: .opacity)))`.
-- **Dark "notification" card on any bg:** `.ultraThinMaterial` + a scheme-aware tint overlay (see Light Theme → Adaptive) + 28pt continuous radius + soft shadow.
+- **"Notification" card surface:** on iOS 26 use authentic Liquid Glass — `.glassEffect(.regular.tint((isDark ? .black : .white).opacity(0.28)), in: shape)`; fall back to `.ultraThinMaterial` + scheme-aware tint below (see Light Theme → Adaptive). 28pt continuous radius + soft shadow.
 
 ---
 
