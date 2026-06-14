@@ -212,6 +212,20 @@ Rules:
 - Accent colors must be **deepened** for contrast on white — e.g. cyan `Color(red: 0.30, green: 0.52, blue: 0.95)`, the opposite of the dark-bg cyan.
 - A dark capsule CTA (`Color(white: 0.10)` fill, white label) is the light-theme equivalent of the glass button.
 
+### Adaptive (support BOTH light + dark)
+
+When a screen must follow the system appearance, never hardcode `.white`/`.black` or force `.preferredColorScheme`. Drive everything off `@Environment(\.colorScheme)` + semantic colors:
+
+```swift
+@Environment(\.colorScheme) private var scheme
+private var isDark: Bool { scheme == .dark }
+```
+- **Text** → `.primary` / `.secondary` (auto-invert). Replace every `.white.opacity(x)` with `.primary.opacity(x)` / `.secondary`.
+- **Materials adapt for free** — `.ultraThinMaterial` is light in light mode, dark in dark mode. To force a *darker* frosted card (iOS notification look) layer a scheme-aware tint over it: `isDark ? .black.opacity(0.45) : .white.opacity(0.35)` — don't reach for a clear `glassEffect`, which reads light.
+- **Gradients / strokes / shadows** → branch on `isDark` (e.g. navy bg in dark, blue-white in light; shadow `0.35` dark vs `0.12` light).
+- **Accent gradients** → lighten in dark, deepen in light, so the accent stays visible on both backgrounds.
+- A stored `let` can't read the environment — make scheme-dependent values **computed `var`s**.
+
 ---
 
 ## iOS 26 Liquid Glass
@@ -504,6 +518,37 @@ ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
 
 ---
 
+## Custom Transitions — rubber-band entrance
+
+`.transition(.scale)` only interpolates from its scale **to 1.0** — so it can't make an element enter *oversized* and settle back. For an "enters wider, rubber-bands to true size" pop, write a custom modifier transition and drive it with a **low-damping (bouncy) spring** so it overshoots:
+
+```swift
+private struct WidthPopModifier: ViewModifier {
+    let active: Bool
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(x: active ? 1.16 : 1.0, y: active ? 1.07 : 1.0, anchor: .top)  // anisotropic → wider
+            .offset(y: active ? -34 : 0)
+            .opacity(active ? 0 : 1)
+    }
+}
+private extension AnyTransition {
+    static var widthPop: AnyTransition {
+        .modifier(active: WidthPopModifier(active: true), identity: WidthPopModifier(active: false))
+    }
+}
+
+// usage — the surrounding withAnimation's spring governs the transition:
+withAnimation(.spring(response: 0.5, dampingFraction: 0.55)) { items.insert(item, at: 0) }
+// on the view:  .transition(.asymmetric(insertion: .widthPop, removal: .move(edge: .top).combined(with: .opacity)))
+```
+
+- **Anisotropic scale** (`x > y`) makes it read as a *width* stretch, not a uniform zoom.
+- The rubber-band comes from the **spring damping**, not the transition: `dampingFraction ≈ 0.55` overshoots; `≈ 0.8` settles flat. Lower = bouncier.
+- `.modifier(active:identity:)` is the general recipe for any entrance the built-in transitions can't express.
+
+---
+
 ## Data Dashboard Patterns
 
 - **Animated proportional bar** — capsule track + fill whose width grows from 0 on appear and re-springs on data change:
@@ -688,12 +733,32 @@ card
 
 ---
 
+## Stacked Cards (notification stack)
+
+Apple's collapsed notification stack: newest card full-size in front, older ones **peek behind** (scaled down + offset + dimmed by depth), tap to **expand** into a list, **swipe the front card to dismiss**, and **cap** the count so the oldest drops off the back.
+
+```swift
+// front = index 0. Transform each card from its depth + an `expanded` flag:
+let yOffset  = expanded ? CGFloat(depth) * (cardHeight + 10) : CGFloat(depth) * 16   // peek step
+let scale    = expanded ? 1.0 : max(0.88, 1.0 - CGFloat(depth) * 0.06)
+let opacity  = expanded ? 1.0 : (depth < 3 ? 1.0 - Double(depth) * 0.22 : 0.0)        // only ~3 peek
+card.scaleEffect(scale).opacity(opacity).offset(y: yOffset).zIndex(Double(count - depth))
+```
+
+- **Insert front + cap:** `withAnimation(.spring) { items.insert(new, at: 0); if items.count > cap { items.removeLast() } }` — newest pops in (pair with `widthPop`), oldest fades off the back.
+- **Expand toggle:** `onTapGesture` on the stack flips `expanded` with `selectionChanged` haptic + `.spring(0.5/0.8)`.
+- **Swipe-to-dismiss (front only):** gate the `DragGesture` to `depth == 0`; rubber-band `dragOffset`, `lightImpact` on start, past ~120pt `removeFirst()` + `heavyImpact`, else spring back.
+- Each card `.transition(.asymmetric(insertion: .widthPop, removal: .move(edge: .top).combined(with: .opacity)))`.
+- **Dark "notification" card on any bg:** `.ultraThinMaterial` + a scheme-aware tint overlay (see Light Theme → Adaptive) + 28pt continuous radius + soft shadow.
+
+---
+
 ## Output (Create mode)
 
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.8.0
+⚙️  swiftui-microinteractions v1.9.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>

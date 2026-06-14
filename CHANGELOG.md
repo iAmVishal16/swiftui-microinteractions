@@ -6,6 +6,17 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.9.0] — 2026-06-14
+
+Learnings from building GlassNotificationStackView (an Apple-style glass notification stack on an "Enable Push Notifications" screen).
+
+- **Stacked Cards (notification stack)**: the collapsed peek-stack pattern — front card full-size, older cards offset/scaled/dimmed by depth; tap-to-expand into a list; swipe-the-front-card-to-dismiss (gated to `depth == 0`); cap the count so the oldest drops off the back. Includes the per-depth transform math and the insert-front-then-cap spring.
+- **Custom Transitions — rubber-band entrance (`widthPop`)**: `.transition(.scale)` only scales *to* 1.0, so it can't enter oversized. Documented the `.modifier(active:identity:)` recipe with an **anisotropic** `scaleEffect(x:1.16, y:1.07)` (reads as a width stretch) + offset + opacity, and the key insight that the **rubber-band/overshoot comes from the spring's `dampingFraction` (~0.55), not the transition**.
+- **Adaptive light + dark** (extends the Light Theme section): drive off `@Environment(\.colorScheme)` + semantic `.primary`/`.secondary` text; never hardcode `.white`/`.black` or force `.preferredColorScheme`; materials adapt for free, and a scheme-aware tint overlay forces a *dark* frosted card (iOS-notification look) instead of a clear `glassEffect`; scheme-dependent values must be computed `var`s, not stored `let`s.
+- Version output bumped to `⚙️ swiftui-microinteractions v1.9.0`
+
+---
+
 ## [1.8.0] — 2026-06-14
 
 Learnings from building PowerAnalyticsCardView (light-theme dashboard in a bottom sheet) and the carousel mechanics behind ApplePayCardCarouselView.
