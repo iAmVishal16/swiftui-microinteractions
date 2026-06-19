@@ -571,7 +571,7 @@ GeometryReader { geo in
 
 - Default: pure `@State` for all gesture tracking · `@GestureState` only if value must auto-reset
 - Constants: camelCase `private let` at struct level (2–5 values) — never SCREAMING_SNAKE_CASE
-- Liquid metaball: `Canvas` (black fill → white circles) + `.blur(20)` + `.contrast(50)` + `.blendMode(.screen)`
+- Liquid metaball: render blobs in a `Canvas` with `.addFilter(.alphaThreshold)` + `.addFilter(.blur)` — see the **Canvas Metaball** section. (Older alt: white circles on black + `.blur` + `.contrast(50)` + `.blendMode(.screen)`.)
 - Multi-phase sequences: stacked `DispatchQueue.main.asyncAfter` with overlapping delays
 
 **ZStack frame trap — always apply both rules together:**
@@ -753,12 +753,40 @@ card.scaleEffect(scale).opacity(opacity).offset(y: yOffset).zIndex(Double(count 
 
 ---
 
+## Canvas Metaball (goo / liquid extrusion)
+
+For elements that should **fuse and split like liquid in plain SwiftUI** (no iOS 26 `GlassEffectContainer`) — e.g. a speed-dial FAB whose actions extrude out of the button — render the blobs in a `Canvas` with the goo filter:
+
+```swift
+Canvas { ctx, size in
+    ctx.addFilter(.alphaThreshold(min: 0.5, color: blobColor)) // hard edge after blur
+    ctx.addFilter(.blur(radius: 16))                           // halos overlap → merge
+    ctx.drawLayer { layer in
+        layer.fill(Path(ellipseIn: fabRect), with: .color(.white))
+        for b in bubbles { layer.fill(Path(ellipseIn: b.rect), with: .color(.white)) }
+    }
+}
+```
+
+Non-obvious rules — each one is a real trap:
+
+- **`alphaThreshold` gives a HARD edge.** Blobs are crisp circles at rest, gooey only where they overlap. "Liquid" ≠ "soft/blurry".
+- **Animate the Canvas by making the layer `View, Animatable`** with `animatableData = progress`. A raw `@State` read inside the Canvas closure *jumps* — Animatable lets SwiftUI interpolate `progress` frame-by-frame and redraw the goo each step.
+- **Keep every blob ~the same size.** One global blur only matches one circle size — if a bubble shrinks (e.g. `0.45·r` mid-travel) the fixed blur ≈ its radius and the threshold collapses it into a **line**. Hold blobs near full size (`0.9–1.0·r`).
+- **Rest spacing must exceed `diameter + 2·blur`** or neighbours never clear each other's blurred alpha → permanent **teardrops**. The neck should exist only *during* the transition.
+- **Slow the morph** (`spring(response ≈ 1.0)`) — fast springs hide the whole goo.
+- **The Canvas is visual only.** Put real `Button`s on top at the same positions for taps + icons. Icons must **travel with their blob on the same spring** (animated `.position`), not `.transition`-pop at the destination, or the motion looks non-uniform. Closed buttons stacked on the FAB need `.allowsHitTesting(false)` so they don't steal its tap.
+
+**Styling taste:** a liquid FAB reads best **flat** (no shadow). Make blob + icon colors parameters that invert with the background — dark bg → white blob + dark glyphs, light bg → dark blob + white glyphs. `+` → `✕` is just a `135°` rotation of one `plus` symbol; a `.thin` weight makes a premium glyph.
+
+---
+
 ## Output (Create mode)
 
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.9.0
+⚙️  swiftui-microinteractions v1.10.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>

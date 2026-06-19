@@ -6,6 +6,18 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.10.0] — 2026-06-19
+
+Learnings from building MultiActionFABView (a speed-dial FAB whose actions extrude out of the button as liquid metaballs, in plain SwiftUI).
+
+- **Canvas Metaball section (new)**: the `Canvas` goo recipe — `addFilter(.alphaThreshold)` + `addFilter(.blur)` over filled circles — for fuse/split liquid without iOS 26 `GlassEffectContainer`. Captures the traps: `alphaThreshold` yields a HARD edge (crisp at rest, gooey only on overlap); animate the Canvas by making the layer `View, Animatable` (`animatableData = progress`) or it jumps; keep blobs ~constant size so one global blur stays proportional (a shrinking bubble collapses the neck into a line); rest spacing must exceed `diameter + 2·blur` or blobs stay teardrop-fused; slow the spring (`response ≈ 1.0`) so the goo reads.
+- **Canvas-vs-interaction split**: the Canvas is visual only — real `Button`s sit on top at matching positions; icons must travel with their blob on the **same spring** (animated `.position`), not `.transition`-pop at the slot; closed buttons need `.allowsHitTesting(false)` so they don't steal the FAB tap.
+- **FAB styling taste**: a liquid FAB reads best **flat** (no shadow); blob + icon colors should be parameters that invert with the background (dark bg → white FAB/dark glyphs, light bg → dark FAB/white glyphs); `+`→`✕` is a 135° rotation of one `plus`; `.thin` weight for a premium glyph.
+- **Themeable demo components**: make a view generic over its `Background` with a `Color`-default convenience init so existing call sites keep working while previews inject a `List`.
+- Version output bumped to `⚙️ swiftui-microinteractions v1.10.0`
+
+---
+
 ## [1.9.0] — 2026-06-14
 
 Learnings from building GlassNotificationStackView (an Apple-style glass notification stack on an "Enable Push Notifications" screen).
