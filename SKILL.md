@@ -10,6 +10,7 @@ Generate a complete, compilable SwiftUI animation file in the legendary-Animo st
 - Need haptic feedback timed correctly to animation phases
 - Creating a drag interaction with resistance, snap, or threshold trigger
 - Animating SF Symbols with draw-on, breathe, bounce, replace, or variable color effects (iOS 17–26)
+- Building a Canvas loader that traces a shape outline with a comet trail (infinity, star, polygon…)
 - Editing an existing SwiftUI animation file
 
 ## Mode Detection
@@ -781,12 +782,42 @@ Non-obvious rules — each one is a real trap:
 
 ---
 
+## Canvas Path Loaders (outline tracing / comet trail)
+
+For a loader that **traces a shape's outline with a fading comet trail** (infinity, star, polygon, heart, rose…), drive a `Canvas` from a `TimelineView` clock and a *precomputed* set of outline samples — never re-evaluate the shape's math every frame:
+
+```swift
+// Build ONCE — cache unit samples per shape (e.g. in a static dictionary).
+let samples: [CGPoint] = makeSamples(for: shape)   // arc-length-even points
+
+TimelineView(.animation(minimumInterval: 1.0/60.0)) { ctx in
+    let progress = (ctx.date.timeIntervalSince(start) / duration).wrappedUnit
+    Canvas(rendersAsynchronously: true) { gc, size in
+        // stroke the static outline faintly …
+        // … then draw N trail dots, each at interpolatedPoint(in: samples,
+        //    progress: progress - tail*trailLength), radius/opacity fading by tail.
+    }
+}
+```
+
+Non-obvious rules — each one is a real trap:
+
+- **Sample-then-animate; never eval-per-frame.** Precompute the outline as `[CGPoint]` unit samples (cache them). Animate only a `progress` head that **interpolates along the cached samples**. The renderer (outline stroke + trail) is shape-agnostic — adding a new shape = adding one sample generator, with *zero* changes to the motion code. Keeps "what shape" fully decoupled from "how it moves."
+- **Arc-length-even sampling = constant-velocity motion.** Walk the outline at equal *arc-length* steps, not equal parameter `t`. Equal-`t` bunches points where the curve is slow and spreads them where it's fast, so a head advancing by `progress` visibly **speeds up / slows down** (worst around polygon corners). Equal arc-length → the head glides at uniform speed. **Shape sharpness and motion smoothness are independent** — sharp corners in the silhouette do *not* cause jerk in the travel.
+- **Two samplers for two silhouettes.** A polyline arc-length sampler (straight edges, crisp vertices → star / polygon) vs a closed **Catmull-Rom** spline (organic flowing curves). Catmull-Rom needs `> 3` control points — fall back to the polyline sampler otherwise. Pick by whether the shape *should* have corners.
+- **Shape recipes.** An N-point **star** = `2N` vertices alternating outer radius `1.0` / inner radius `~0.42`; a **regular polygon** = `N` unit-circle vertices; a rotation offset orients it (point-up `-π/2`, flat-top hexagon `+π/6`).
+- **Use a `TimelineView` clock, not a spring / `withAnimation`.** A loader is a continuous loop, not a state transition — derive everything from `time`: `progress = (time/duration).wrappedUnit`, plus independent `rotation` and `breathe` from the same clock. (This is the Canvas form of the **Loading Indicator → never spring** rule in the Archetype Catalog.)
+
+**Content taste:** for a generic loader showcase, prefer **generic geometric primitives** (star, pentagon, hexagon, infinity) over tracing brand/trademark logos — same premium feel, no trademark exposure, and the shapes generalize.
+
+---
+
 ## Output (Create mode)
 
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.10.0
+⚙️  swiftui-microinteractions v1.11.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>

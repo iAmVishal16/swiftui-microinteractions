@@ -6,6 +6,17 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.11.0] — 2026-06-20
+
+Learnings from building UniqueLoaders (Canvas loaders that trace a shape's outline with a fading comet trail; swapped traced brand-logo shapes for generic geometric ones without touching motion).
+
+- **Canvas Path Loaders section (new)**: drive a `Canvas` from a `TimelineView` clock and *precomputed* outline samples — never re-evaluate the shape math every frame. Captures the architecture and traps: **sample-then-animate** (cache `[CGPoint]` unit samples; animate only a `progress` head that interpolates along them, so the renderer is shape-agnostic and adding a shape needs zero motion-code changes); **arc-length-even sampling = constant-velocity motion** (equal-`t` sampling bunches points and makes the head speed up/slow down at corners — equal arc-length glides uniformly; shape sharpness and motion smoothness are independent); **two samplers** (polyline arc-length for crisp vertices vs closed Catmull-Rom for organic curves, which needs `>3` control points); shape recipes for star (`2N` vertices alternating outer `1.0`/inner `~0.42`), regular polygons, and orientation offsets.
+- **Loader = clock, not a transition**: use `TimelineView(.animation)` deriving `progress = (time/duration).wrappedUnit` (+ independent rotation/breathe from the same clock), never a spring/`withAnimation` — the Canvas form of the existing "Loading Indicator → never spring" rule.
+- **Content taste**: prefer generic geometric primitives (star/pentagon/hexagon/infinity) over tracing brand/trademark logos in a generic showcase — same premium feel, no trademark exposure, better generalization.
+- Version output bumped to `⚙️ swiftui-microinteractions v1.11.0`
+
+---
+
 ## [1.10.0] — 2026-06-19
 
 Learnings from building MultiActionFABView (a speed-dial FAB whose actions extrude out of the button as liquid metaballs, in plain SwiftUI).
