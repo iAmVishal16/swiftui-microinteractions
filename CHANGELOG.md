@@ -6,6 +6,19 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.12.0] — 2026-06-24
+
+Learnings from building LiquidGlassToastsView (Apple-style Liquid Glass toasts over an image grid, triggered by an icon-only glass button that cycles statuses via the SF Symbol replace transition).
+
+- **Liquid Glass Toasts & Status Banners section (new)**: how to render transient toasts/banners in Liquid Glass so the effect actually reads, plus the traps. **A backdrop taller than the screen must live in `.background`, never as a ZStack sibling** — an image grid / `LazyVGrid` whose intrinsic height exceeds the screen inflates the container, pushing `Spacer()`-anchored controls (a bottom button) off-screen; move it to `.background { grid }.clipped()` so it can't drive the foreground layout (and don't stack an opaque `Color` in front of a `.background` layer — it hides it).
+- **Keep every toast's glass identical; status goes in the icon, not the surface**: tinting the glass per status makes one toast read as a near-solid fill while neutral ones refract — inconsistent. Use neutral `.regular` glass for all toast surfaces (capsule + card) and carry status color in the SF Symbol / tinted icon well. The opposite of the tinted-glass-for-destructive-buttons rule (toasts want consistency, controls want signalling).
+- **Toast position respects the safe area for free**: `.overlay(alignment: .top)` aligns to the safe-area top, so `.padding(.top, 10)` sits below the Dynamic Island — a fixed pad lands under the notch when the view ignores the top safe area.
+- **Auto-dismiss with a token** (`if toast?.id == new.id`) so a newer toast isn't cut short; slide via `.transition(.move(edge: .top).combined(with: .opacity))`.
+- **Icon-only Liquid Glass action button**: `.buttonStyle(.glass)` + `.buttonBorderShape(.circle)` (material-circle fallback < iOS 26), cycling actions with `.contentTransition(.symbolEffect(.replace))` driven inside `withAnimation`; status haptic ladder (`notificationSuccess/Warning/Error`, `lightImpact` for neutral).
+- Version output bumped to `⚙️ swiftui-microinteractions v1.12.0`
+
+---
+
 ## [1.11.0] — 2026-06-20
 
 Learnings from building UniqueLoaders (Canvas loaders that trace a shape's outline with a fading comet trail; swapped traced brand-logo shapes for generic geometric ones without touching motion).

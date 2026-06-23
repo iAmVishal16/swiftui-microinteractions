@@ -812,12 +812,48 @@ Non-obvious rules — each one is a real trap:
 
 ---
 
+## Liquid Glass Toasts & Status Banners
+
+For Apple-style transient toasts/banners (success / error / warning / info / "copied") rendered in **Liquid Glass**, the glass only reads if there's **colorful content behind it** — put an image grid (or any vivid backdrop) behind the toast layer so the refraction is visible; a flat dark/light background hides the effect.
+
+```swift
+// neutral glass = maximum refraction; status color lives in the icon, NOT the glass tint
+.background(glassBackground(Capsule(), tint: nil))   // .glassEffect(.regular) / .ultraThinMaterial fallback
+```
+
+Non-obvious rules — each one is a real trap:
+
+- **A backdrop taller than the screen must go in `.background`, never as a ZStack sibling.** *(headline)* An image grid / `LazyVGrid` whose intrinsic height exceeds the screen, placed as a ZStack sibling, **inflates the container's height** — so a `Spacer()`-anchored control (e.g. a bottom button) is pushed *off-screen* and silently disappears. Move the backdrop into `.background { grid }.clipped()` so it fills the screen but **cannot drive the foreground's layout**; the foreground then lays out against the true viewport. Corollary: don't stack an opaque `Color` *in front of* a `.background` layer — it hides it.
+- **Keep every toast's glass identical; put status in the icon, not the surface.** Tinting the glass per status (`.glassEffect(.regular.tint(statusColor))`) makes that toast read as a near-**solid colored fill** while the neutral ones refract, so they look inconsistent. Use neutral `.regular` glass for *all* toast surfaces (capsule and card alike) and carry the status color in the SF Symbol / a small tinted icon well. This is the **opposite** of the *tinted-glass-for-destructive-buttons* rule — toasts want consistency, controls want signalling.
+- **Toast position respects the safe area for free.** An `.overlay(alignment: .top) { toast }` aligns to the safe-area top, so a small `.padding(.top, 10)` drops it just below the Dynamic Island. A *fixed* top pad (`.padding(.top, 70)`) lands under the notch whenever the view ignores the top safe area — don't hardcode it.
+- **Auto-dismiss with a token, not a bare delay.** On show, set `toast = new`; schedule dismissal after ~2.5s but only clear it `if toast?.id == new.id`, so a newer toast isn't cut short. Slide in/out with `.transition(.move(edge: .top).combined(with: .opacity))` inside `withAnimation`.
+- **Shapes:** `Capsule` for single-line statuses, a `RoundedRectangle` card (icon well + title + subtitle) for richer ones — both on the **same neutral glass**.
+
+**Icon-only Liquid Glass action button (cycling trigger)** — an Apple-native glass button that morphs its icon on each tap:
+
+```swift
+Button(action: trigger) {
+    Image(systemName: kind.icon)
+        .contentTransition(.symbolEffect(.replace))   // morph to the next action
+        .frame(width: 72, height: 72)
+}
+.buttonStyle(.glass)            // iOS 26 — material-circle fallback below
+.buttonBorderShape(.circle)
+.tint(kind.tint ?? .white)
+// trigger(): show(current); withAnimation { index = (index + 1) % count }
+```
+
+- Just the icon — let the glass and its refraction be the whole button; the `.replace` transition (driven **inside `withAnimation`**) is the headline interaction. Don't add a text label or a custom ring.
+- **Haptic ladder for statuses:** `notificationSuccess / Warning / Error` for those kinds, `lightImpact` for neutral info/copied.
+
+---
+
 ## Output (Create mode)
 
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.11.0
+⚙️  swiftui-microinteractions v1.12.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>
