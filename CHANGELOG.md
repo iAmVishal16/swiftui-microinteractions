@@ -6,6 +6,16 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.14.0] — 2026-06-26
+
+Strengthened the **iOS 26 Liquid Glass** section with a "use the genuine effect, always" rule.
+
+- **When a prompt says "Liquid Glass", use the real `.glassEffect`** — never fake it with a near-opaque material/tint as the primary surface (a `Capsule().fill(.ultraThinMaterial)` or heavy white-tinted glass reads as a flat chip, not glass). `.ultraThinMaterial` is the `< iOS 26` fallback only.
+- **Put busy, colorful content behind the glass** (image grid / photo / vivid gradient) so the refraction reads — a flat solid or pale background hides Liquid Glass and is the #1 reason a "glass" build looks wrong. For a standalone showcase, an image-tile grid backdrop is the safest way to make it pop.
+- Version output bumped to `⚙️ swiftui-microinteractions v1.14.0`
+
+---
+
 ## [1.13.0] — 2026-06-26
 
 Learnings from building a multi-link "stacked deck" for snippet cards (several links collapse into a notification-style stack that fans open; cards reorder in place), where the reorder had to live inside a card the parent list already made draggable / long-pressable.

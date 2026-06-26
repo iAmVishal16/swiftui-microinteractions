@@ -231,6 +231,11 @@ private var isDark: Bool { scheme == .dark }
 
 ## iOS 26 Liquid Glass
 
+**When the prompt says "Liquid Glass" → use the GENUINE effect, always.** Two non-negotiables:
+
+- **Real API, never a look-alike.** Use real `.glassEffect(.regular)` (or `.regular.interactive()` for a pressable control) on iOS 26. Do **not** fake it with a near-opaque fill as the *primary* surface — a `Capsule().fill(.ultraThinMaterial)` or a heavy `.glassEffect(.regular.tint(.white.opacity(0.5)))` reads as a flat chip, not glass. `.ultraThinMaterial` is the **< iOS 26 fallback only**, gated behind `if #available(iOS 26.0, *)`.
+- **Put busy, colorful content BEHIND the glass** so the refraction/specular actually reads — an image grid, a photo wall, a vivid gradient. On a flat solid or pale background Liquid Glass is nearly invisible and looks like plain material; that's the #1 reason a "glass" build looks wrong. (For a standalone showcase, an image-tile grid backdrop is the safest way to make the effect pop.)
+
 Use `.glassEffect()` on iOS 26+, fall back to `.ultraThinMaterial` on older OS. Always wrap in a `@ViewBuilder` helper so both paths share the same call site:
 
 ```swift
@@ -900,7 +905,7 @@ card
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.13.0
+⚙️  swiftui-microinteractions v1.14.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>
