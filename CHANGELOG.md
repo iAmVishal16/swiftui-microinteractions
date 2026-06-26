@@ -6,6 +6,17 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.13.0] — 2026-06-26
+
+Learnings from building a multi-link "stacked deck" for snippet cards (several links collapse into a notification-style stack that fans open; cards reorder in place), where the reorder had to live inside a card the parent list already made draggable / long-pressable.
+
+- **Stacked Deck & In-Place Reorder section (new)**: the notification-deck archetype (collapsed peek-stack → one-spring fan-out, peeks shrink + dim via `scaleEffect`/`brightness`, a glass count pill, the whole collapsed deck is one tap target) plus the reorder rule.
+- **Don't nest drag in drag**: a child `.draggable` inside an already drag/long-press-enabled parent makes nested recognizers fight for the same touch — and scoping the child drag to a grip handle does **not** fix it (the parent's long-press still arms there). Reorder with **discrete tap controls** (▲▼ buttons, fire on tap) instead — taps never compete with a long-press.
+- **Persist positionally in place**: rewrite the i-th data slot (e.g. reorder URL tokens within the text, leaving interleaved prose put; no-op unless counts match) so order survives reload.
+- Version output bumped to `⚙️ swiftui-microinteractions v1.13.0`
+
+---
+
 ## [1.12.0] — 2026-06-24
 
 Learnings from building LiquidGlassToastsView (Apple-style Liquid Glass toasts over an image grid, triggered by an icon-only glass button that cycles statuses via the SF Symbol replace transition).

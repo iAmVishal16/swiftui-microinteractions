@@ -848,12 +848,59 @@ Button(action: trigger) {
 
 ---
 
+## Stacked Deck & In-Place Reorder
+
+A set of cards that lives **inside** a row that the parent already made
+draggable / long-pressable (a list item with `.draggable` or a `.contextMenu`).
+Two traps, one archetype.
+
+**Don't nest drag in drag.** A child `.draggable` inside an already
+drag/long-press-enabled parent makes nested recognizers fight for the same touch
+— the parent's long-press and the child's drag both arm on the same gesture arc,
+so neither feels reliable. Scoping the child drag to a small grip handle does
+**not** fix it; the parent's long-press still fires from that spot.
+
+- **Reorder with discrete tap controls, not drag.** Per-row up/down chevron
+  buttons (▲ disabled on the first row, ▼ on the last) that move an item one
+  slot. Buttons fire on *tap*, which never competes with a long-press, so reorder
+  works inside any card. This is the same fallback Apple uses where drag is
+  unavailable.
+- **Persist positionally in place.** Rewrite the i-th slot of the underlying data
+  (e.g. reorder URL tokens within the snippet text, leaving interleaved prose
+  exactly where it was; no-op unless counts match so text can't be mangled) so
+  the new order survives reload.
+
+**Notification-deck archetype** (collapsed peek-stack → fan open): lay every card
+in a `ZStack(alignment: .top)` and switch each card's geometry on one `isExpanded`
+spring.
+
+```swift
+let depth = CGFloat(min(index, maxPeeks))            // 0,1,2 — only top few peek
+card
+    .frame(height: rowHeight)
+    .scaleEffect(isExpanded ? 1 : 1 - depth * 0.05, anchor: .top)   // peeks shrink
+    .brightness(isExpanded ? 0 : -Double(depth) * 0.03)             // …and dim
+    .offset(y: isExpanded ? CGFloat(index) * rowStride              // fanned list
+                          : depth * peekStep)                       // stacked peek
+    .opacity(!isExpanded && index > maxPeeks ? 0 : 1)
+    .zIndex(Double(count - index))
+```
+
+- Collapsed, the whole deck is **one tap target** that expands (overlay a clear
+  `Button`); the cards underneath stay `allowsHitTesting(false)` until open.
+- A glass count pill (`rectangle.stack` + N) overlays the collapsed top card.
+- Container height is computed per state: `count * rowHeight + (count-1) * spacing`
+  expanded vs `rowHeight + min(count-1, maxPeeks) * peekStep` collapsed.
+- `mediumImpact` on expand/collapse; `selection` on each move.
+
+---
+
 ## Output (Create mode)
 
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.12.0
+⚙️  swiftui-microinteractions v1.13.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>
