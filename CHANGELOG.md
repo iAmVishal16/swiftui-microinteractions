@@ -6,6 +6,18 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.15.0] — 2026-07-01
+
+Added a **Metal Shaders (`.colorEffect` / stitchable)** section — learnings from building a poke-able molten liquid-metal surface as a real GPU shader (not a Canvas look-alike).
+
+- **New Metal Shaders section**: write a `[[ stitchable ]]` shader in a `.metal` file and apply it with `.colorEffect`; drive it from a `TimelineView` clock (never a spring); gate `iOS 17+` with a non-shader fallback.
+- **Register the `.metal` in the pbxproj *Sources* phase as `sourcecode.metal`** — the silent-black trap: if it isn't compiled into `default.metallib`, `ShaderLibrary.<name>` renders black with no error. The stitchable function name must match the `ShaderLibrary.<name>` call.
+- **Pack touch data as a fixed `float4` ring-buffer** (SwiftUI has no float-array-of-structs); ripples perturb the *height field* before the normal is computed, so the reflection bends where you poke — that's what sells "liquid".
+- **Designer vocab → Metal**: "liquid chrome / molten metal / mercury", "holographic / iridescent / oil-slick", "plasma / lava / aurora" now route to a `.colorEffect` shader; added a **Metal Shader** archetype row.
+- Version output bumped to `⚙️ swiftui-microinteractions v1.15.0`
+
+---
+
 ## [1.14.0] — 2026-06-26
 
 Strengthened the **iOS 26 Liquid Glass** section with a "use the genuine effect, always" rule.

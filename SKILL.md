@@ -52,6 +52,9 @@ Translate any designer words in the prompt into skill-understood terms before ru
 | wiggle / shake | `.wiggle value:` — error / rejection signal |
 | pop | quick `.scaleEffect` overshoot + snap back |
 | morph | Glass Morph archetype or shape interpolation |
+| liquid chrome / molten metal / mercury / brushed steel | Metal Shader — stitchable `.colorEffect` (see Metal Shaders section) |
+| holographic / iridescent / oil-slick / foil / prism | Metal Shader — fresnel rainbow in a `.colorEffect` |
+| plasma / lava / nebula / aurora / fluid ink | Metal Shader — FBM field in a `.colorEffect` |
 
 **UI element names → SwiftUI primitives:**
 
@@ -651,6 +654,7 @@ The archetype drives physics, haptics, and container defaults. Pick the closest 
 | **Data Dashboard** | "chart", "graph", "metric", "scrub", "data" | full-screen | Dial/scrub `.interactiveSpring` | selectionChanged per step |
 | **Glass Morph** | "glass", "fuse", "morph", "capsule" | inline | 3-phase rubber-band | mediumImpact on morph |
 | **Particle / Physics Sim** | "gravity", "fluid", "rope", "cloth", "sand" | full-screen | custom physics loop | lightImpact on touch |
+| **Metal Shader** | "liquid chrome", "molten metal", "holographic", "plasma", "shader" | full-screen | `TimelineView` clock (never spring) | lightImpact on touch |
 | **Loading Indicator** | "loading", "spinner", "progress", "scanning" | inline | `.linear(duration:)` | none |
 
 Print the resolved archetype on the `🎯  Archetype:` line. If the user's prompt overrides any default in this table, use their value and note the override in parentheses.
@@ -900,12 +904,48 @@ card
 
 ---
 
+## Metal Shaders (`.colorEffect` / stitchable)
+
+For premium GPU surfaces plain SwiftUI can't reach — **liquid chrome you can poke, holographic foil, plasma, molten metal** — write a real Metal shader and apply it with `.colorEffect`. This is a genuine `[[ stitchable ]]` shader in a separate `.metal` file, **not** a Canvas look-alike. (legendary-Animo already ships ~11 of these, so it's an established pattern — check for existing `.metal` files first.)
+
+```metal
+// LiquidMetal.metal
+#include <metal_stdlib>
+#include <SwiftUI/SwiftUI_Metal.h>
+using namespace metal;
+
+[[ stitchable ]]
+half4 liquidMetal(float2 pos, half4 color, float2 res, float time, float4 r0 /*…*/) {
+    float2 uv = pos / res;
+    // FBM height field → normal → moving light (diffuse + specular + fresnel)
+    return half4(half3(col), 1.0h);
+}
+```
+```swift
+Rectangle().foregroundStyle(.black)
+    .colorEffect(ShaderLibrary.liquidMetal(.float2(size), .float(time), .float4(x,y,startT,amp)))
+```
+
+Non-obvious rules — each one is a real trap:
+
+- **Register the `.metal` in the pbxproj *Sources* phase as `sourcecode.metal`.** *(headline)* Adding the file is not enough — if it isn't in Compile Sources it never lands in `default.metallib`, so `ShaderLibrary.<name>` silently renders **black** (no crash, no error). The `[[ stitchable ]]` function name must match the `ShaderLibrary.<name>` call exactly.
+- **The first two params are supplied automatically.** A `.colorEffect` shader is `half4 fn(float2 pos, half4 color, <your uniforms…>)` — SwiftUI fills `pos`/`color`; your Swift arg list starts at the first uniform. (`.distortionEffect` warps geometry; `.layerEffect` can sample neighbours — needs `<SwiftUI/SwiftUI_Metal.h>`.)
+- **Drive it from a `TimelineView(.animation)` clock, never a spring.** A shader field is a continuous loop; pass `time = ctx.date.timeIntervalSince(start)` as a `float` uniform and re-issue the `.colorEffect` each tick. (Same rule as Loading Indicator / Canvas loaders.)
+- **Touch data has no float-array-of-structs — pack a fixed `float4` ring-buffer.** SwiftUI `Shader.Argument` only has `.float/.float2/.float3/.float4/.color/.image/.floatArray`. For N touch ripples keep a Swift ring-buffer capped at, say, 4 and pass 4 fixed `.float4(x, y, startTime, amp)` slots (pad empties with amp 0). Capping to the last few while dragging gives a trailing **liquid wake** for free.
+- **Ripples perturb the height field, not the color.** Add each decaying ring (`sin(d·k − age·ω)·exp(−age)·exp(−d)`) into the surface height *before* computing the normal, so the *reflection* bends where you poke — that's what sells "liquid", not a color splash.
+- **Gate `iOS 17+`** (`.colorEffect` is 17.0) with a non-shader fallback (e.g. an `AngularGradient` sweep) so it still builds on 16.
+- **Verification trap:** a shader can compile+link and still render black (name mismatch, missing Sources entry, wrong arg order). **Build and look** — `CompileMetalFile` + `MetalLink` in the log prove compilation, but only a screenshot proves it renders.
+
+**Content taste:** lean into the double meaning of *Metal* — molten chrome/mercury/gold/oil-slick reads as premium and unexpected. Keep alloys as tint-pair uniforms so one shader serves many palettes; carry iridescence in the fresnel, not a flat overlay.
+
+---
+
 ## Output (Create mode)
 
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.14.0
+⚙️  swiftui-microinteractions v1.15.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>
