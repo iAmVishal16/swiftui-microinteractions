@@ -6,6 +6,19 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.18.0] — 2026-07-06
+
+Learnings from building a Song App (a 3D SceneKit album-cover object driven by a native-physics vertical stack carousel) — the skill's first real 3D/SceneKit and UIKit-scroll-physics patterns.
+
+- **SceneKit 3D Object Showcase section (new)**: embed a real `SCNScene` via `UIViewRepresentable` for objects that tilt/rotate in true 3D (not `rotation3DEffect`). Truly transparent embed needs **four** places cleared (`scene.background.contents = nil` plus `isOpaque`/`backgroundColor`/`layer.isOpaque` on the view) — missing any one leaves a white/black rectangle. Driving a node's transform from continuously-changing SwiftUI state (scroll offset, drag) needs `SCNTransaction.disableActions = true`, or SceneKit's own implicit animation fights and lags behind the driver. A 6-face `SCNBox` can act as a "sleeve" object — front face art, one face a **dynamically rendered label image** (Core Graphics, drawn once), rest solid color. One directional key light + one ambient fill is a reusable default lighting rig. A dual `embedded: Bool` mode (opaque standalone vs. transparent + cheaper antialiasing when many instances render together) lets one component serve both a hero showcase and a repeated stack item.
+- **Deriving Accent Colors from Artwork section (new)**: sample a downscaled copy of an image and weight pixels by saturation+brightness (not raw frequency) to find a representative accent color — plain "most frequent" just returns the boring background fill. Reject near-white/near-black outliers explicitly; darken a near-white winner so it doesn't read as a blank panel. Contrasting text color uses perceptual luminance (`0.299r + 0.587g + 0.114b`), not a channel average, since green reads brighter to the eye than red/blue.
+- **Native-Physics Scroll Stacks section (new)**: for a stack that should feel like scrolling a native list (real momentum/rubber-banding, not a `DragGesture` spring approximation), drive it with an invisible, content-less `UIScrollView` whose `contentOffset` pushes a plain `CGFloat` binding — a completely separate SwiftUI layer reads that binding to position its own cards. Traps: gate programmatic `setContentOffset` behind `!isTracking && !isDecelerating` or the binding round-trip fights the user's touch; fire a settle-tick haptic by rounding to nearest index and diffing against the last-fired index (robust regardless of item spacing); gate the boundary/rubber-band haptic with a `boundaryFired` flag reset on next drag so it fires once per excursion, not once per frame; cull far-off items with a `renderWindow` check — essential when each item is an expensive per-instance render (SceneKit, Metal, video).
+- **Asymmetric distance-response curves (extends Coverflow)**: nothing requires a continuous fan/stack transform to be symmetric — branch the degrees-per-step (or scale/opacity falloff) on the *sign* of the distance, not just its magnitude, when the two directions should read as physically different (cards already passed vs. cards still ahead).
+- **New Archetype Catalog row**: `3D Object Showcase` — SceneKit rig physics, `SCNTransaction.disableActions` for driven properties, never a spring.
+- Version output bumped to `⚙️ swiftui-microinteractions v1.18.0`
+
+---
+
 ## [1.17.0] — 2026-07-06
 
 Learnings from building NowPlayingView (a Liquid Glass "Now Playing" screen with an auto-advancing, infinite-wrap poster deck that's also swipe-to-dismiss, plus a content-driven glass tab bar).

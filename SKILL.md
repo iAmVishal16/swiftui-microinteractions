@@ -694,6 +694,7 @@ The archetype drives physics, haptics, and container defaults. Pick the closest 
 | **Particle / Physics Sim** | "gravity", "fluid", "rope", "cloth", "sand" | full-screen | custom physics loop | lightImpact on touch |
 | **Metal Shader** | "liquid chrome", "molten metal", "holographic", "plasma", "shader" | full-screen | `TimelineView` clock (never spring) | lightImpact on touch |
 | **Loading Indicator** | "loading", "spinner", "progress", "scanning" | inline | `.linear(duration:)` | none |
+| **3D Object Showcase** | "3D", "SceneKit", "spin the cover", "album", "boxed product" | embedded or full-screen | SceneKit rig, `SCNTransaction.disableActions` for driven properties (never spring) | selectionChanged per settle / none if passive |
 
 Print the resolved archetype on the `🎯  Archetype:` line. If the user's prompt overrides any default in this table, use their value and note the override in parentheses.
 
@@ -831,6 +832,7 @@ card
 - **Cap rotation and clamp scale/opacity to a floor** (`max(-2, min(2, d))`, `max(0.82, …)`) — beyond ~2 cards away the linear formulas would flip cards past vertical or invert opacity; clamping keeps distant cards small, dim, and blurred instead of glitching.
 - **Blur-by-distance is a cheap depth-of-field** — 2–4pt of blur on off-center cards sells "depth" far more than scale/opacity alone, and is nearly free compared to real depth-of-field rendering.
 - Use `selectionChanged` haptic on index change (see velocity-aware paging above); the continuous transform is purely visual and doesn't change the haptic ladder.
+- **Asymmetric response is fine — and often more physical — when the two directions should feel different.** Nothing requires the distance-response curves to be symmetric: a stack of cards "already flipped past" vs. "still ahead" can use different degrees-per-step (e.g. ahead fans flatter, behind stands more upright), so the two sides of the deck read as physically distinct rather than a mirror image of each other. Branch the formula on the sign of the distance, not just its magnitude.
 
 ### Selection-synced immersive backdrop
 
@@ -888,6 +890,47 @@ Text(current.title)
 ```
 
 - **The `.id()` must change, not just the string** — `.contentTransition` fires on identity change of the underlying view, so keying it to a stable string that happens not to change between two items (e.g. two movies that coincidentally share a genre chip) silently skips the cross-fade. Key to the item's own `id`, or to `text + current.id` for a per-field key (e.g. reusable "chip" subviews showing different fields of the same item).
+
+---
+
+## Native-Physics Scroll Stacks (invisible `UIScrollView` driver)
+
+A `DragGesture`-driven stack (see Carousels & Paging above) always *approximates* momentum with a spring — it never quite matches real UIKit deceleration and rubber-banding. When a stack should feel like scrolling a native list (a stacked card/album deck that free-scrolls and decelerates like Music.app or Photos), drive it with a **real, invisible `UIScrollView`** instead, and let it push a plain `CGFloat` binding that a completely separate SwiftUI render stack reads to position its cards.
+
+```swift
+private struct ScrollDriver: UIViewRepresentable {
+    @Binding var scrollOffset: CGFloat   // expressed in "items", not points
+    let itemSpacing: CGFloat
+    let maxOffset: CGFloat
+
+    func makeUIView(context: Context) -> UIScrollView {
+        let sv = UIScrollView()
+        sv.delegate = context.coordinator
+        sv.decelerationRate = .normal      // real momentum curve — not a spring
+        sv.backgroundColor = .clear
+        return sv
+    }
+    func updateUIView(_ sv: UIScrollView, context: Context) {
+        sv.contentSize = CGSize(width: sv.bounds.width, height: maxOffset * itemSpacing + sv.bounds.height)
+        guard !context.coordinator.isTracking, !context.coordinator.isDecelerating else { return }
+        let target = scrollOffset * itemSpacing
+        if abs(sv.contentOffset.y - target) > 0.5 {
+            sv.setContentOffset(CGPoint(x: 0, y: target), animated: false)
+        }
+    }
+    // Coordinator (UIScrollViewDelegate): scrollViewDidScroll → scrollOffset = contentOffset.y / itemSpacing
+}
+// The rendered card stack sits ABOVE the driver in a ZStack with .allowsHitTesting(false) on the
+// stack — every touch lands on the invisible UIScrollView, which never draws any content of its own.
+```
+
+Non-obvious rules — each is a real trap:
+
+- **The scroll view renders nothing.** Its `contentSize` exists purely to define the scrollable *range* and produce real deceleration/rubber-band physics; the actual cards are a totally separate layer reading `scrollOffset` as a plain float. This split — UIKit computes "where," SwiftUI (or a SceneKit-embedded card) draws "what" — is the core idea, and it generalizes to any custom-rendered stack that wants native scroll feel.
+- **Gate every programmatic `setContentOffset` behind `!isTracking && !isDecelerating`.** Without this guard, the round-trip (driver → `@Binding` → `updateUIView` → `setContentOffset`) fights the user's own touch or native deceleration and stutters. Only force-sync the offset when the user isn't currently driving it themselves (e.g. an external "jump to index" call).
+- **Settle-tick haptic — round to nearest, diff against the last-fired index**, not a raw pixel threshold: `let crossed = Int(floor(offset + 0.5)); if crossed != lastHapticIndex { tick(); lastHapticIndex = crossed }`. Fires `selectionChanged` exactly once per item boundary crossed in either direction — more robust than a fixed pixel threshold since it's expressed in "items," not points, and works the same regardless of `itemSpacing`.
+- **Boundary/rubber-band haptic — fire once per overscroll excursion, not once per frame.** Gate with a `boundaryFired` flag set the first frame `contentOffset` passes either end, and reset it in `scrollViewWillBeginDragging` — otherwise a rigid impact fires on every `scrollViewDidScroll` tick while the user holds the view stretched past its limit (dozens of buzzes instead of one clean thud).
+- **Windowed rendering — cull cards far from the visible window.** With many expensive per-item views (SceneKit, Metal, video), don't render the whole stack: `if abs(scrollProgress) <= renderWindow { cardView }` inside the `ForEach`. SwiftUI simply never builds the view for culled items — essential for SceneKit specifically, since each instance owns a real `SCNView` and render pass.
 
 ---
 
@@ -1137,12 +1180,93 @@ Non-obvious rules — each one is a real trap:
 
 ---
 
+## SceneKit 3D Object Showcase
+
+For a **real 3D object** (an album cover, a book, a boxed product) that tilts/rotates in response to scroll or touch — not a fake `rotation3DEffect` pseudo-3D — embed an `SCNScene` via `UIViewRepresentable` and drive it from SwiftUI state.
+
+### Truly transparent SceneKit embed
+
+`SCNView` defaults to an **opaque white background** — invisible over a SwiftUI backdrop unless cleared in all four places:
+
+```swift
+scene.background.contents = nil        // the SCNScene itself
+view.isOpaque = false
+view.backgroundColor = .clear
+view.layer.isOpaque = false
+```
+Missing any one of these still shows a white (or black, post-clear-but-pre-layer) rectangle behind the object.
+
+### Drive node transforms from SwiftUI state without SceneKit's implicit animation fighting you
+
+SceneKit **implicitly animates** node property changes by default. If a tilt/rotation should track a continuously-driven value (scroll offset, drag), that implicit animation makes it lag behind and rubber-band against your own driver. Wrap every driven update in a transaction with actions disabled:
+
+```swift
+SCNTransaction.begin()
+SCNTransaction.disableActions = true
+node.eulerAngles = SCNVector3Make(tiltX * .pi / 180, tiltY * .pi / 180, 0)
+SCNTransaction.commit()
+```
+The value then updates **exactly** on your schedule (every `updateUIView`, every scroll tick) — SwiftUI/UIKit owns the animation curve, not SceneKit's own defaults.
+
+### Boxed-object recipe (6-face `SCNBox`, one face as a rendered label)
+
+An `SCNBox`'s six materials, in `SCNBox.materials` order (+Z front, -Z back, +X right, -X left, +Y top, -Y bottom), build a "sleeve" object with a real spine: front face = artwork, spine face = a **dynamically rendered `UIImage`** (title + subtitle drawn via Core Graphics onto a colored background), remaining faces = a solid edge color:
+
+```swift
+box.materials = [coverFront, edgeColor, coverRight, edgeColor, edgeColor, labelEdge]
+```
+- Image faces use `.lightingModel = .blinn` (should shade under the lights); solid-color faces use `.lightingModel = .constant` (flat — doesn't need lighting math, cheaper).
+- The spine label is a plain `UIGraphicsImageRenderer` draw — no SceneKit text API needed. Render it **once** (not per frame) and hand the resulting `UIImage` to `.diffuse.contents`.
+
+### Lighting/camera rig — reusable default for "object floating in space"
+
+One directional **key** light + one **ambient** fill is enough for a premium single-object showcase — no need for a full 3-point rig:
+```swift
+keyLight.type = .directional; keyLight.intensity = 900                                 // tune 700–1000
+keyLight.eulerAngles = SCNVector3Make(-40 * .pi/180, 25 * .pi/180, 0)                   // top-front-left
+ambientLight.type = .ambient; ambientLight.color = UIColor(white: 0.30, alpha: 1)       // fill so shadow side isn't pitch black
+camera.fieldOfView = 46; camera.position = SCNVector3Make(0, 0.3, 5.0)
+```
+
+### Dual-mode component: standalone vs. embedded
+
+The same object view should work both as a full-screen showcase (opaque black backdrop, full antialiasing) and as one of many repeated instances inside a scrolling stack (transparent, cheaper antialiasing since several render at once):
+```swift
+var embedded: Bool = false
+// standalone: ZStack { Color.black.ignoresSafeArea(); sceneView }
+// embedded:   sceneView alone, background stays .clear
+view.antialiasingMode = embedded ? .multisampling2X : .multisampling4X   // cheaper AA when many instances render together
+```
+
+**Verification trap:** a SceneKit view can compile and run while still showing a plain white/black rectangle if any transparency step above is skipped, or a flat gray box if a texture failed to load (`UIImage(named:)` returning `nil` fails silently). Screenshot-verify the actual object renders with correct art and lighting — don't just confirm the view exists in the hierarchy.
+
+---
+
+## Deriving Accent Colors from Artwork
+
+When a screen should tint itself (an object's spine face, a background scrim, a button accent) from the dominant color of an image rather than a hardcoded palette value, sample a **downscaled** copy and weight by saturation + brightness — not raw pixel frequency, which usually just picks whatever's most common (often a boring background gray or black):
+
+```swift
+let sampleSize = 40   // downscale first — sampling a full-res image per pixel is wasteful and noisy
+context.draw(cgImage, in: CGRect(x: 0, y: 0, width: sampleSize, height: sampleSize))
+// per pixel: visibility = saturation * 0.7 + brightness * 0.3
+// bucket by quantized color, accumulate weight * (r,g,b), skip alpha < 0.5
+// winner = bucket with highest total weight; divide its accumulated color by its weight
+```
+
+- **Weight by saturation + brightness, not pixel count.** A plain "most frequent color" pass on a poster/cover usually returns the boring gray/black background fill. Weighting toward saturated, mid-brightness pixels finds the color a human would actually call "the color of this image."
+- **Reject near-white/near-black outliers explicitly** (skip pixels with `brightness` outside `0.08–0.95`) — otherwise a mostly-white or mostly-black image just returns white/black as its "dominant" color, which is true but useless as an accent.
+- **Darken a near-white winner** (`luminance > 0.85 → multiply channels by 0.75`) — even after weighting, a pastel-heavy image can still win with a color that reads as a blank white panel when filled as a solid background; scaling it down keeps it visibly a color rather than a void.
+- **Contrasting text color — use perceptual luminance, not a channel average:** `0.299·r + 0.587·g + 0.114·b > 0.55 → black text, else white`. Green reads brighter to the eye than red or blue at the same channel value, so a plain `(r+g+b)/3` average picks the wrong text color on saturated pure-blue or pure-green backgrounds.
+
+---
+
 ## Output (Create mode)
 
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.17.0
+⚙️  swiftui-microinteractions v1.18.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>
