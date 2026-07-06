@@ -6,6 +6,20 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.16.0] — 2026-07-06
+
+Learnings from building MoviePosterSwipeCarousel (a velocity-aware movie poster carousel with a coverflow-style continuous fan, a selection-synced blurred backdrop, and variable-width page dots).
+
+- **Coverflow / continuous depth fan (new, under Carousels & Paging)**: replaces the two-state (`selected`/`not`) fan with one **signed, drag-blended distance** (`(i - selectedIndex) - dragOffset/cardWidth`) driving scale, rotation (capped ±14°), y-offset, opacity, and blur-by-distance together, so every card — not just the immediate neighbor — recedes continuously and updates *while the finger is still dragging*, not just on release. Blur-by-distance is called out as a cheap depth-of-field that sells "depth" far more than scale/opacity alone.
+- **Selection-synced immersive backdrop (new)**: a full-bleed blurred+saturated background that cross-fades to match the selected carousel item. Stack all candidate images and cross-fade `opacity` — never swap which `Image` is in the tree, or the cross-fade can't animate. `.blur(radius:opaque: true)` avoids the translucent-edge artifact plain `.blur` produces at large radii; apply blur/saturation once to the whole stack, not per-image.
+- **Page indicator dots (new)**: a lightweight capsule-dot position indicator (active dot stretches 7pt → 22pt) as a simpler alternative to the Tab Bar sliding indicator when there's no tab content to align to.
+- **Detail text swap on selection (new)**: `.contentTransition(.opacity)` keyed to a changing `.id()` as a lightweight alternative to `.numericText` for non-numeric text (titles, metadata) that should cross-fade with a selection change — with the trap that the `.id()` must actually change per item, not just the displayed string.
+- **Gold/rating color added to Style Rules**: `Color(red: 1.0, green: 0.84, blue: 0.35)` for star ratings and similar accents.
+- **Gloss overlay recipe added to Style Rules**: a diagonal `.white.opacity(0.18) → .clear` gradient with `.blendMode(.softLight)` over a photographic card reads as premium glass sheen without washing out the photo (softLight, not screen, is what keeps it subtle).
+- Version output bumped to `⚙️ swiftui-microinteractions v1.16.0`
+
+---
+
 ## [1.15.0] — 2026-07-01
 
 Added a **Metal Shaders (`.colorEffect` / stitchable)** section — learnings from building a poke-able molten liquid-metal surface as a real GPU shader (not a Canvas look-alike).

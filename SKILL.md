@@ -190,7 +190,9 @@ In files written to `Carousels/` or `Animations/`, SourceKit reports `Cannot fin
 
 **Opacity levels:** ghost `0.06–0.08` · subtle `0.12` · inactive `0.3` · secondary `0.5` · active `0.8–0.9` · full `1.0`
 
-**Colors:** white + opacity dominant · cyan `Color(red: 0.45, green: 0.65, blue: 1.0)` · green `Color(red: 0.55, green: 0.95, blue: 0.75)` · never `.blue/.green/.red` on dark bg
+**Colors:** white + opacity dominant · cyan `Color(red: 0.45, green: 0.65, blue: 1.0)` · green `Color(red: 0.55, green: 0.95, blue: 0.75)` · gold/rating `Color(red: 1.0, green: 0.84, blue: 0.35)` · never `.blue/.green/.red` on dark bg
+
+**Gloss overlay (photographic cards):** a diagonal sheen on a poster/photo card reads as premium glass without touching the image — overlay a `LinearGradient(colors: [.white.opacity(0.18), .clear], startPoint: .topLeading, endPoint: .center)` clipped to the card shape with `.blendMode(.softLight)`. `.softLight` (not `.screen`) keeps the highlight subtle enough not to wash out the photo underneath.
 
 **Gradients:** two-tone only · blob fill `[.white, Color(white: 0.88)]` · progress `[cyan, green]`
 
@@ -741,6 +743,91 @@ card
 - Apply a **resistance multiplier** (`* 0.5`) to `dragOffset` so the stack feels weighty under the finger.
 - `MeshGradient` (iOS 18+, 9-point) makes a premium card/orb fill — animate the control points for a living surface.
 
+### Coverflow / continuous depth fan
+
+The two-state fan above (`selected` vs `not`) is enough for a simple stack, but a **"flip through posters/cards" coverflow** wants every card — not just the immediate neighbor — to recede continuously into the distance, and to do so *while the finger is still dragging*, not just after the gesture ends. Drive every transform off one **signed, drag-blended distance** instead of a boolean:
+
+```swift
+private func effectiveDistance(for i: Int) -> CGFloat {
+    CGFloat(i - selectedIndex) - (dragOffset / cardWidth)   // blends live drag in
+}
+
+private func scale(for i: Int)    -> CGFloat  { max(0.82, 1.0 - 0.12 * abs(effectiveDistance(for: i))) }
+private func rotation(for i: Int) -> Double   { Double(max(-2, min(2, effectiveDistance(for: i))) * 7) }  // cap at ±14°
+private func yOffset(for i: Int)  -> CGFloat  { abs(effectiveDistance(for: i)) * 18 }
+private func opacity(for i: Int)  -> Double   { max(0.0, 1.0 - 0.28 * abs(effectiveDistance(for: i))) }
+private func blur(for i: Int)     -> CGFloat  { min(4, abs(effectiveDistance(for: i)) * 2) }
+
+card
+    .scaleEffect(scale(for: i))
+    .rotationEffect(.degrees(rotation(for: i)))
+    .offset(x: CGFloat(i - selectedIndex) * xStep + dragOffset, y: yOffset(for: i))
+    .opacity(opacity(for: i))
+    .blur(radius: blur(for: i))
+    .zIndex(-abs(effectiveDistance(for: i)))   // closest to center draws on top
+```
+
+- **Divide `dragOffset` by card width, not a magic constant** — that normalizes the drag into "fractional cards moved," so neighbors visibly grow/shrink in real time as the finger moves, then settle the rest of the way once the spring takes over on release. Without this the fan only updates in a jump when the gesture ends.
+- **Cap rotation and clamp scale/opacity to a floor** (`max(-2, min(2, d))`, `max(0.82, …)`) — beyond ~2 cards away the linear formulas would flip cards past vertical or invert opacity; clamping keeps distant cards small, dim, and blurred instead of glitching.
+- **Blur-by-distance is a cheap depth-of-field** — 2–4pt of blur on off-center cards sells "depth" far more than scale/opacity alone, and is nearly free compared to real depth-of-field rendering.
+- Use `selectionChanged` haptic on index change (see velocity-aware paging above); the continuous transform is purely visual and doesn't change the haptic ladder.
+
+### Selection-synced immersive backdrop
+
+For a "browse and the whole screen reacts" feel (movie posters, album art, product photos), cross-fade a **full-bleed blurred backdrop** behind the carousel that always matches the selected card:
+
+```swift
+GeometryReader { geo in
+    ZStack {
+        ForEach(items.indices, id: \.self) { i in
+            Image(items[i].imageName)
+                .resizable().scaledToFill()
+                .frame(width: geo.size.width, height: geo.size.height)
+                .clipped()
+                .opacity(i == selectedIndex ? 1 : 0)
+                .animation(.easeInOut(duration: 0.55), value: selectedIndex)
+        }
+    }
+    .blur(radius: 80, opaque: true)   // opaque: true — avoids edge transparency artifacts at high radius
+    .saturation(1.3)                  // blur flattens color; push saturation back up
+}
+```
+
+- **Stack all candidate images and cross-fade opacity — don't swap the `Image` view.** Swapping which image is in the tree restarts its load/layout and can't cross-fade; toggling `opacity` on views that are always present animates smoothly and is what makes `.easeInOut(duration: 0.55)` read as a dissolve.
+- **`.blur(radius:opaque:)` with `opaque: true`** is both faster and avoids the translucent-edge artifact that plain `.blur` produces at large radii on a full-bleed image.
+- **Apply `.blur`/`.saturation` once to the whole `ZStack`**, not per-image — one blur pass instead of N.
+- Overlay a top/bottom `LinearGradient` scrim (`black.opacity(0.55) → clear → black.opacity(0.70)`) so header and title text stay legible over any photo.
+
+### Page indicator dots (variable-width)
+
+For a lightweight position indicator under a carousel/paging view (simpler than the Tab Bar sliding indicator, since there's no tab content to align to):
+
+```swift
+HStack(spacing: 7) {
+    ForEach(items.indices, id: \.self) { i in
+        Capsule()
+            .fill(.white.opacity(i == selectedIndex ? 0.95 : 0.3))
+            .frame(width: i == selectedIndex ? 22 : 7, height: 7)
+    }
+}
+.animation(.spring(response: 0.4, dampingFraction: 0.7), value: selectedIndex)
+```
+
+The active dot **stretching into a capsule** (22pt vs a 7pt circle) rather than just changing color/opacity is what makes it read as premium — a plain color-only dot indicator looks dated by comparison.
+
+### Detail text swap on selection (lightweight alternative to `.numericText`)
+
+When a carousel/list selection drives adjacent text (title, metadata) that isn't numeric, `.numericText` doesn't apply — use `.contentTransition(.opacity)` keyed to an `.id()` that changes with the selection instead of a custom transition:
+
+```swift
+Text(current.title)
+    .contentTransition(.opacity)
+    .id(current.id)                              // changing id forces the transition to fire
+    .animation(.easeInOut, value: current.id)     // implicit, or wrap the mutation in withAnimation
+```
+
+- **The `.id()` must change, not just the string** — `.contentTransition` fires on identity change of the underlying view, so keying it to a stable string that happens not to change between two items (e.g. two movies that coincidentally share a genre chip) silently skips the cross-fade. Key to the item's own `id`, or to `text + current.id` for a per-field key (e.g. reusable "chip" subviews showing different fields of the same item).
+
 ---
 
 ## Stacked Cards (notification stack)
@@ -945,7 +1032,7 @@ Non-obvious rules — each one is a real trap:
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.15.0
+⚙️  swiftui-microinteractions v1.16.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>
