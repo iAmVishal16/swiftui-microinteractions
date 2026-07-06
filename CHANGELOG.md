@@ -6,6 +6,21 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.17.0] — 2026-07-06
+
+Learnings from building NowPlayingView (a Liquid Glass "Now Playing" screen with an auto-advancing, infinite-wrap poster deck that's also swipe-to-dismiss, plus a content-driven glass tab bar).
+
+- **Auto-Advancing Card Deck section (new)**: the Tinder-style deck archetype — infinite wrap via `(i - index + count) % count`, one `advance()` function called by both the swipe gesture and a `.task` timer so the two paths can't drift apart, and the critical trap: render the discarded/falling card as an **independent overlay outside the stack's `ForEach`**, not as a removal inside it, so bumping `index` reshuffles the stack immediately instead of fighting the exit animation. Two deliberately different durations (fast reshuffle, slower fall) sell "the next one rose to the front" rather than "we waited." Includes a progressive stepped-offset formula (18, 15, 12, 9…) as a more physical alternative to a constant per-depth step.
+- **Gate-and-rearm threshold haptics (new, under Haptics)**: a drag that crosses a threshold, retreats, and crosses again should buzz on every crossing — gate on entry, rearm on exit (`didCrossThreshold` reset when the drag falls back below the line), not a fire-once-ever boolean.
+- **Liquid Glass moving-content trap (new)**: never put a live `.glassEffect()` on a chip attached to a view that's being actively dragged/animated — glass resamples its backdrop continuously and visibly "grows/pulses" on fast-moving elements. Use a static translucent color fill for anything riding on moving content; reserve real glass for static or slow-moving elements.
+- **`.regular` vs `.clear` glass style (new)**: `.clear` is more transparent than `.regular` — reach for it on a bar/control over especially rich or busy content (a poster/photo backdrop) where `.regular` would over-flatten the art.
+- **Expanding tab bar variant (new, under Tab Bar Patterns)**: a content-driven alternative to the sliding-indicator bar — only the selected tab shows its label, so the glass capsule autosizes around content with no indicator math at all; right for a floating bar over content, not a fixed-width full-screen bar.
+- **Image-colored ambient shadow (new, under Style Rules)**: duplicate the card's own artwork behind it, heavily blurred/dimmed/offset, instead of a plain black `.shadow` — the halo reads as tinted by the actual content instead of generic weight. Reserve for hero cards, since it's a duplicate image render.
+- **Mask-vs-scrim fade-out (extends the selection-synced backdrop pattern)**: a `LinearGradient` scrim dims a photo so text stays legible *on top of it*; a `.mask` with the same gradient shape instead *reveals* a solid color behind the image for a hard, clean handoff to a card below — pick by what's underneath the backdrop, not by habit.
+- Version output bumped to `⚙️ swiftui-microinteractions v1.17.0`
+
+---
+
 ## [1.16.0] — 2026-07-06
 
 Learnings from building MoviePosterSwipeCarousel (a velocity-aware movie poster carousel with a coverflow-style continuous fan, a selection-synced blurred backdrop, and variable-width page dots).

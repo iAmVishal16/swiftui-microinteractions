@@ -177,6 +177,22 @@ Before including haptic code, check if `HapticFeedback.swift` exists anywhere in
 3. `heavyImpact` — action commits / destruction confirmed
 4. `selectionChanged` — discrete value scrub / step
 
+**Gate-and-rearm threshold haptics — fire once per crossing, not once ever.** A drag that crosses a dismiss/commit threshold, retreats, then crosses again should buzz *every* crossing, not just the first. A plain "fired" boolean that's never reset only fires once for the life of the gesture. Gate on entry, **rearm on exit**:
+
+```swift
+@State private var didCrossThreshold = false
+// in onChanged:
+if !didCrossThreshold, y > threshold {
+    didCrossThreshold = true
+    impact(.medium)                     // fires on every fresh crossing
+} else if didCrossThreshold, y <= threshold {
+    didCrossThreshold = false           // rearm — retreating past the line resets it
+}
+// reset both didCrossThreshold and any didStartDrag flag in onEnded
+```
+
+Apply the same gate (without rearm, since it only happens once) to the touch-down `lightImpact`, with a small dead-zone (`y > 2`) so sub-pixel jitter at gesture start doesn't fire it prematurely.
+
 **SourceKit `HapticFeedback` false positive — always ignore:**
 In files written to `Carousels/` or `Animations/`, SourceKit reports `Cannot find 'HapticFeedback' in scope`. This is **not a real error** — SourceKit analyzes the new file in isolation and doesn't see other module members. `HapticFeedback.swift` is registered in the Sources build phase; the real compiler resolves it correctly. Do not add `import UIKit`, do not re-declare the struct, do not alter the code.
 
@@ -193,6 +209,22 @@ In files written to `Carousels/` or `Animations/`, SourceKit reports `Cannot fin
 **Colors:** white + opacity dominant · cyan `Color(red: 0.45, green: 0.65, blue: 1.0)` · green `Color(red: 0.55, green: 0.95, blue: 0.75)` · gold/rating `Color(red: 1.0, green: 0.84, blue: 0.35)` · never `.blue/.green/.red` on dark bg
 
 **Gloss overlay (photographic cards):** a diagonal sheen on a poster/photo card reads as premium glass without touching the image — overlay a `LinearGradient(colors: [.white.opacity(0.18), .clear], startPoint: .topLeading, endPoint: .center)` clipped to the card shape with `.blendMode(.softLight)`. `.softLight` (not `.screen`) keeps the highlight subtle enough not to wash out the photo underneath.
+
+**Image-colored ambient shadow (glow):** a plain black `.shadow` under a poster/photo card reads as generic weight, not light. For a shadow that feels like it belongs to that specific artwork, duplicate the image itself behind the card, heavily blurred and dimmed:
+
+```swift
+.background {
+    Image(item.imageName)
+        .resizable().scaledToFill()
+        .frame(width: cardWidth, height: cardHeight)
+        .clipShape(cardShape)
+        .blur(radius: 34)
+        .opacity(0.65)
+        .offset(y: 22)
+        .scaleEffect(0.96)   // slightly smaller so the blurred edge doesn't peek past the card
+}
+```
+The result is a soft, color-tinted halo instead of a neutral drop shadow — reserve it for hero cards (front of a deck, selected item), not every row, since it's a duplicate render of the image. Works for any image-backed card — poster, album art, product photo.
 
 **Gradients:** two-tone only · blob fill `[.white, Color(white: 0.88)]` · progress `[cyan, green]`
 
@@ -240,6 +272,10 @@ private var isDark: Bool { scheme == .dark }
 
 - **Real API, never a look-alike.** Use real `.glassEffect(.regular)` (or `.regular.interactive()` for a pressable control) on iOS 26. Do **not** fake it with a near-opaque fill as the *primary* surface — a `Capsule().fill(.ultraThinMaterial)` or a heavy `.glassEffect(.regular.tint(.white.opacity(0.5)))` reads as a flat chip, not glass. `.ultraThinMaterial` is the **< iOS 26 fallback only**, gated behind `if #available(iOS 26.0, *)`.
 - **Put busy, colorful content BEHIND the glass** so the refraction/specular actually reads — an image grid, a photo wall, a vivid gradient. On a flat solid or pale background Liquid Glass is nearly invisible and looks like plain material; that's the #1 reason a "glass" build looks wrong. (For a standalone showcase, an image-tile grid backdrop is the safest way to make the effect pop.)
+
+**`.regular` vs `.clear`:** `.glassEffect(.regular, in:)` is the default frosted intensity — reach for `.glassEffect(.clear, in:)` on a bar/control that sits over especially rich, busy, high-contrast content (a poster, a photo backdrop) where `.regular`'s frosting would flatten the artwork more than wanted. `.clear` lets more of the backdrop's color and detail through.
+
+**Never put a live `.glassEffect()` on a chip riding a view that's actively being dragged or animated fast** (a meta pill on a card mid-swipe, a badge on a scrubber thumb). Glass re-samples its backdrop continuously, and on a fast-moving element that resampling reads as the glass visibly **growing or pulsing** rather than looking stable — not a subtle bug, an obviously broken-looking one. Use a plain static translucent fill instead (`Color.black.opacity(0.45)` in the same shape) for anything attached to actively-moving content; reserve real glass for elements that are static or move slowly.
 
 Use `.glassEffect()` on iOS 26+, fall back to `.ultraThinMaterial` on older OS. Always wrap in a `@ViewBuilder` helper so both paths share the same call site:
 
@@ -706,6 +742,30 @@ Image(systemName: isExpanded ? "xmark" : "ellipsis")
 
 **Standard heights:** `barHeight = 49pt` (icon-only) · `barHeight = 68pt` (icon + label)
 
+**Expanding tab bar (content-driven width, no indicator math)** — when the bar doesn't need fixed-width cells (e.g. a floating glass capsule over content, not a full-width screen bar), skip the `GeometryReader`/indicator entirely: only the selected tab shows its label, so its `Button` naturally grows and the container reflows around it.
+
+```swift
+HStack(spacing: 10) {
+    ForEach(NavTab.allCases, id: \.self) { tab in
+        let isSelected = tab == selectedTab
+        Button { select(tab) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: tab.symbol).symbolEffect(.bounce, value: isSelected)
+                if isSelected { Text(tab.title) }   // label only exists when selected — no width reserved
+            }
+            .foregroundStyle(.white.opacity(isSelected ? 1 : 0.6))
+            .padding(.horizontal, 14).padding(.vertical, 9)
+        }
+        .buttonStyle(.plain)
+    }
+}
+.padding(6)
+.glassEffect(.clear, in: .capsule)                                    // capsule autosizes to content
+.animation(.spring(response: 0.4, dampingFraction: 0.8), value: selectedTab)
+```
+
+Simpler than the sliding-indicator recipe when the bar floats over rich content rather than filling the screen width — there's no slot math because there are no fixed slots. Trade-off: tabs shift position as labels appear/disappear, so it reads as "compact icon bar with one tab announcing itself," not a stable grid — pick the sliding-indicator version instead when tabs must stay in fixed positions.
+
 ---
 
 ## Carousels & Paging
@@ -797,6 +857,7 @@ GeometryReader { geo in
 - **`.blur(radius:opaque:)` with `opaque: true`** is both faster and avoids the translucent-edge artifact that plain `.blur` produces at large radii on a full-bleed image.
 - **Apply `.blur`/`.saturation` once to the whole `ZStack`**, not per-image — one blur pass instead of N.
 - Overlay a top/bottom `LinearGradient` scrim (`black.opacity(0.55) → clear → black.opacity(0.70)`) so header and title text stay legible over any photo.
+- **Two ways to fade it out — scrim vs. mask, pick by what's underneath.** The scrim above (a translucent gradient laid *on top*) is right when there's readable content over the *whole* backdrop. When the backdrop should only occupy the **top** portion of the screen and hand off cleanly to a solid-color card below it, `.mask` the image itself with a `white → clear` gradient instead: `.mask(LinearGradient(stops: [.init(color: .white, location: 0), .init(color: .white, location: 0.18), .init(color: .clear, location: 0.42)], startPoint: .top, endPoint: .bottom))` over a plain `Color.black` behind it. A mask *reveals the layer behind it* (true transparency down to black), where a scrim only *dims* the image — use mask when you need a hard, clean handoff to a solid surface; use scrim when text needs to sit legibly on top of photo for the full extent.
 
 ### Page indicator dots (variable-width)
 
@@ -847,6 +908,55 @@ card.scaleEffect(scale).opacity(opacity).offset(y: yOffset).zIndex(Double(count 
 - **Swipe-to-dismiss (front only):** gate the `DragGesture` to `depth == 0`; rubber-band `dragOffset`, `lightImpact` on start, past ~120pt `removeFirst()` + `heavyImpact`, else spring back.
 - Each card `.transition(.asymmetric(insertion: .widthPop, removal: .move(edge: .top).combined(with: .opacity)))`.
 - **"Notification" card surface:** on iOS 26 use authentic Liquid Glass — `.glassEffect(.regular.tint((isDark ? .black : .white).opacity(0.28)), in: shape)`; fall back to `.ultraThinMaterial` + scheme-aware tint below (see Light Theme → Adaptive). 28pt continuous radius + soft shadow.
+
+---
+
+## Auto-Advancing Card Deck (swipe-or-timer, infinite wrap)
+
+A Tinder-style deck (movie/song/product-of-the-day, story cards) where the front card **either** gets swiped away by the user **or** auto-advances on a timer, wraps around infinitely, and the next card must rise to the front *immediately* — without waiting for the discarded card to finish falling off-screen.
+
+**Infinite wrap via modulo distance**, so `index` never needs bounds-checking:
+```swift
+private func slot(for i: Int) -> Int { (i - index + items.count) % items.count }   // 0 = front
+```
+
+**One `advance()` function, two callers.** Both the swipe gesture (past threshold) and a `.task` auto-advance timer call the same function — so the fall animation, haptic, and state mutation are defined once and can't drift apart between the manual and automatic paths:
+```swift
+.task {
+    while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(2.5))
+        if flying == nil { advance(fromDrag: 0) }   // don't double-fire if a swipe is already mid-flight
+    }
+}
+```
+
+**The critical trap — decouple the exiting card from the stack it's leaving.** If the discarded card stays inside the same `ForEach` that renders the stack, bumping `index` (which reshuffles every remaining card's depth/offset) and animating that card's removal fight over the same elements — you get a stutter or a visible glitch. Instead render the falling card as an **independent overlay**, outside the stack loop, with its own state:
+
+```swift
+@State private var flying: Item? = nil
+@State private var flyY: CGFloat = 0
+@State private var flyRot: Double = 0
+
+private func advance(fromDrag startY: CGFloat) {
+    flying = items[index]; flyY = startY; flyRot = tilt(for: startY)
+    withAnimation(.easeInOut(duration: 0.55)) { index = (index + 1) % items.count }   // stack reshuffles NOW, fast
+    withAnimation(.easeIn(duration: 0.85)) { flyY = 1100; flyRot = 6 }                 // discarded card keeps falling, slower
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.87) { flying = nil }
+}
+// in the stack ForEach: skip any card whose id == flying?.id
+// render the flying card separately: cardView(f).offset(y: flyY).rotationEffect(.degrees(flyRot)).zIndex(100)
+```
+
+- **Two different durations for two different things happening at once** — the stack's reshuffle (`0.55s`) is deliberately shorter than the card's fall (`0.85s`), so the next card is already settled into place while the discarded one is still visibly finishing its exit in the background. That's what makes it read as "the next one rose to the front," not "we waited for the old one to leave."
+- `index` mutates the instant `advance()` is called — the fall animation never blocks it.
+- **Progressive stepped stack offset** (tighter each level back) reads as a more physical, hand-stacked deck than a constant per-depth step:
+```swift
+private func stackOffset(_ depth: Int) -> CGFloat {
+    var y: CGFloat = 0, step: CGFloat = 18
+    for _ in 0..<depth { y += step; step = max(9, step - 3) }   // 18, 15, 12, 9, 9…
+    return -y
+}
+```
 
 ---
 
@@ -1032,7 +1142,7 @@ Non-obvious rules — each one is a real trap:
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.16.0
+⚙️  swiftui-microinteractions v1.17.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>
