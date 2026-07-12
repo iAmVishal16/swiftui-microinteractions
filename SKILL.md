@@ -1261,12 +1261,27 @@ context.draw(cgImage, in: CGRect(x: 0, y: 0, width: sampleSize, height: sampleSi
 
 ---
 
+## Live Activities & the Real Dynamic Island (ActivityKit + WidgetKit)
+
+An in-app view can *mimic* the Dynamic Island (morph, glass, gestures) — but to render in the **actual** Dynamic Island + Lock Screen you need **ActivityKit + a Widget Extension**, and the rules are nothing like an in-app SwiftUI view. Build the mimic for the micro-interaction; build a Live Activity when it must live in the real island.
+
+- **It requires a separate Widget Extension target — not a view.** Declare `struct XAttributes: ActivityAttributes` (with a `ContentState`), add an `ActivityConfiguration(for:)` + `DynamicIsland { }` DSL in a **WidgetKit extension**, set `NSSupportsLiveActivities = true` in the app's Info.plist, and the app calls `Activity.request / update / end`. There's no CLI to scaffold the target — use Xcode's *File → New → Target → Widget Extension* (check "Include Live Activity").
+- **WidgetKit ≠ in-app SwiftUI: no gestures, no continuous animation, no custom springs.** *(headline)* The compact↔expanded **morph is the system's** (genuine Liquid Glass on iOS 26) — you only supply each region's content. Interactivity is **App-Intent Buttons only** (`Button(intent:)` backed by a `LiveActivityIntent`), never `DragGesture`/`onTapGesture`. A scrubber can't be dragged; a progress bar only advances on a *pushed* state update. No `TimelineView` 60 fps loop. So the drag / rubber-band / live-equalizer micro-interaction stays **in-app**; the island is a declarative status display.
+- **Artwork memory budget is the #1 blank-island gotcha.** *(headline)* A Live Activity extension has a hard ~30 MB memory limit. A full-res photo (`4000×6000` ≈ 96 MB decoded) **silently fails to render → grey placeholder box** — no crash, no error. Ship artwork at ~**400×400** (it displays tiny). This is the single most common "why is my island art blank."
+- **Expanded regions clip — keep them compact.** The `DynamicIslandExpandedRegion` set (leading / trailing / center / bottom) has a max height; art + title + progress + times + a big transport row overflows and clips at the bottom. Use small control fonts (`.title2` play, `.body` skips), tight spacing, and put elapsed / −remaining **under** the progress bar, not as a floating trailing number.
+- **Shared `ActivityAttributes` must belong to BOTH targets.** The attributes / `ContentState` file is compiled into the app (which requests/updates) *and* the widget (which renders) — one `PBXFileReference`, a build-file entry in each target's Sources phase (or a synchronized-folder membership). It's compiled into each module, so **no `import`** of the other.
+- **Modern Xcode widget targets are file-system-synchronized** (`PBXFileSystemSynchronizedRootGroup`): a file dropped into the extension's folder auto-joins the target and deleting the template samples auto-removes them — only cross-target shared files need explicit wiring.
+- **Two-way island ↔ app sync.** The island's App-Intent buttons mutate the running activity directly (`Activity<Attrs>.activities.first` → `update(...)`); the app observes `activity.contentUpdates` to reflect island-driven changes back into its own UI, keeping `isPlaying` / progress consistent on both sides.
+- **Content taste:** a real, *small* album cover on the black pill reads premium; a gradient + SF-Symbol placeholder reads as "no artwork."
+
+---
+
 ## Output (Create mode)
 
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.18.0
+⚙️  swiftui-microinteractions v1.19.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>

@@ -6,6 +6,12 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.19.0] — 2026-07-12
+
+Live Activities & the Real Dynamic Island (ActivityKit + WidgetKit): the in-app island is a look-alike — the real island needs a Widget Extension; WidgetKit has no gestures / continuous animation / custom springs (interactivity = App-Intent buttons only); the ~30 MB artwork memory budget → grey-box gotcha (ship ~400×400); expanded-region clipping; shared `ActivityAttributes` two-target membership; island↔app `contentUpdates` sync.
+
+---
+
 ## [1.18.0] — 2026-07-06
 
 Learnings from building a Song App (a 3D SceneKit album-cover object driven by a native-physics vertical stack carousel) — the skill's first real 3D/SceneKit and UIKit-scroll-physics patterns.
