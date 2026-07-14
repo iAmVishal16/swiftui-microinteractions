@@ -1276,12 +1276,47 @@ An in-app view can *mimic* the Dynamic Island (morph, glass, gestures) — but t
 
 ---
 
+## SceneKit Metallic Badge — flat-face lighting, coin-flip settle, engraved back
+
+A spinnable metal achievement badge (shield / coin / star): extruded `SCNShape` bezel + colored enamel + raised emblem, PBR metal reflecting a code-generated environment gradient. Distinct from the boxed-object showcase — these traps are specific to *flat, front-facing metal*.
+
+- **Flat metal faces mirror the ENVIRONMENT, not a light.** *(headline)* A pure-metal (`metalness 1`) flat face pointing at the camera reflects the env map's camera-facing region — usually dark — so it renders **black on a dark background**. A directional key light adds *no* diffuse to pure metal, so it can't rescue it. Fixes: use **satin metal (`metalness ≈ 0.7`, `roughness ≈ 0.34`) for flat faces** so the tint reads; reserve mirror-chrome (`roughness ≈ 0.15`) for **beveled / curved** surfaces (they catch the bright top of the env). A beveled crest looks great head-on; a flat coin does not without this.
+- **Add a front fill light for static / head-on metal.** Even satin metal at rest looks dull with only top + rim lights. A low directional light from ~straight-front — plus a small resting **lean** so the face tilts toward the brighter upper env — keeps the front lit with a central specular. Pair with a high-contrast env gradient (bright top → near-black bottom) and a raised `lightingEnvironment.intensity` for punchy reflections.
+- **Coin-flip settle (no auto-spin).** Drive one `spinAngle` from the render loop; when not dragging, spring it toward the **nearest multiple of π, recomputed every frame** — `target = round(spinAngle / .pi) * .pi`. A flick seeds `spinVel` from `DragGesture.value.velocity`; because the target re-picks each frame, momentum carries the badge face-to-face and it lands on the nearest face (heads/tails) with a slight wobble. Low stiffness (~50) lets a flick pass through midpoints instead of snapping back.
+- **The engraved back plane must be occluded from the front.** A double-sided textured plane behind the body bleeds through the front (peeks past a tapered silhouette, or shows through dark enamel). Push it **well behind the opaque body** (past the back face in `z`) and keep it **inside the body's silhouette** (smaller than the widest shape) so the body occludes it head-on; it only appears once the badge flips. And **do not pre-mirror the back text** — the parent's `y = π` flip already presents the plane's *front* to the camera, so a manual horizontal flip double-mirrors it (reads backwards).
+- **Concentric-ring coin (Apple Move-award motif):** metal base `SCNCylinder` + colored recessed face + raised `SCNTorus` ring grooves + a center boss, each node rotated `π/2` about X to lay the coin flat facing the camera.
+- **Fidelity ceiling — procedural vs `.usdz`.** Extruded `SCNShape` + code-gen env *approximates* the look, but Apple's badges are authored, texture-baked `.usdz` with real HDRI reflections. For pixel-parity, load a `.usdz` (Reality Composer Pro / Blender export) instead of building geometry — procedural is the "good, self-contained" tier, not the parity tier.
+
+---
+
+## Ring Gauges — trim fill + cap-dot geometry
+
+For Apple Fitness-style activity rings (concentric gradient rings that fill):
+
+- **A leading cap dot on a `Circle().stroke` ring orbits at `side/2`, not `(side − lineWidth)/2`.** *(headline)* `Circle().stroke(lineWidth:)` centers the stroke on the path (radius `side/2`, bleeding `lineWidth/2` outside the frame). A cap dot placed at `(side − lineWidth)/2` sits half a band-width *inside* the ring. Orbit it at `side/2` — `.offset(y: -side/2)` then `.rotationEffect(.degrees(progress * 360))` around the ZStack center — so it rides *on* the band.
+- **Staggered spring trim-fill.** Fill each ring `Circle().trim(from: 0, to: min(progress, 1))` from 0 with `withAnimation(.spring).delay(0.08 * i)` per ring; roll the stat numbers with `.contentTransition(.numericText(value:))`.
+- **Overachieve wrap-with-shadow (the >100% cue).** For `progress > 1`, draw a second `trim(0, progress − 1)` arc on top and place a **shadowed cap dot** rotated to `progress * 360°` so it overlaps the ring start — the depth cue that reads as "you beat the goal."
+- **Vivid ring gradients** (pink→red move, green exercise, cyan→blue stand) are the one place the "never pure `.red/.green/.blue` on dark" rule bends — these are *tuned* gradients, not muddy system colors.
+
+---
+
+## Liquid Glass Tab ⇄ Search Morph
+
+The iOS 26 signature: a floating glass tab bar whose search button morphs into a full-width search field.
+
+- **It's fuse/separate of TWO `glassEffectID`s, not one element resizing.** *(headline)* Give the tab-bar capsule one id (`"bar"`) and the search circle another (`"search"`); on toggle, **remove the bar** (it melts away) while the **search element grows from circle → full-width field** (same `"search"` id). `GlassEffectContainer` renders the metaball melt. A single resizing element can't express "one thing leaves while another expands."
+- **Delay keyboard focus until after the morph settles.** Auto-focusing the field mid-morph shoots the keyboard up and steals the transition — schedule `@FocusState = true` *after* the morph spring (e.g. `+0.6s` for a slow morph) so the circle→field morph plays first.
+- **Slow the morph so it's felt** (spring `response ≈ 0.95`), and respect the fusion-threshold rule (`layoutGap > containerSpacing + 6`) so the bar and search circle don't bleed into each other at rest.
+- **Proper tab-bar feel:** icons only, each `.frame(maxWidth: .infinity)` so they spread evenly (no dead space); show selection with a soft circle behind the icon, not a text label.
+
+---
+
 ## Output (Create mode)
 
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.19.0
+⚙️  swiftui-microinteractions v1.20.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>

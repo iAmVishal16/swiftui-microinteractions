@@ -6,6 +6,12 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.20.0] — 2026-07-14
+
+Three new sections from a collectible-badge / rings / glass-search build. **SceneKit Metallic Badge** — flat metal faces mirror the environment (satin for flat faces, mirror-chrome for bevels), front-fill light for static head-on metal, coin-flip settle (spring to nearest π, seeded by drag velocity), engraved-back-plane occlusion + no-pre-mirror, concentric-ring coin recipe, procedural-vs-`.usdz` ceiling. **Ring Gauges** — cap dot orbits at `side/2` (stroke centers on the path), staggered trim-fill, overachieve wrap-with-shadow. **Liquid Glass Tab ⇄ Search Morph** — fuse/separate of two `glassEffectID`s, delay keyboard focus until the morph settles.
+
+---
+
 ## [1.19.0] — 2026-07-12
 
 Live Activities & the Real Dynamic Island (ActivityKit + WidgetKit): the in-app island is a look-alike — the real island needs a Widget Extension; WidgetKit has no gestures / continuous animation / custom springs (interactivity = App-Intent buttons only); the ~30 MB artwork memory budget → grey-box gotcha (ship ~400×400); expanded-region clipping; shared `ActivityAttributes` two-target membership; island↔app `contentUpdates` sync.
