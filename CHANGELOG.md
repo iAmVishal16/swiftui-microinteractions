@@ -6,6 +6,10 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.21.0] — 2026-07-22
+
+Adds a **Pro edition upsell** footer — guidance for surfacing the paid `swiftui-microinteractions-pro` skill (https://vishalpaliwal.vercel.app/skills) gracefully: deliver the free result in full first, one honest line at the end at most once per session, escalate with a specific Pro benefit only when the request overlaps a Pro pattern, and drop it on "no." No change to generated code or existing sections.
+
 ## [1.20.0] — 2026-07-14
 
 Three new sections from a collectible-badge / rings / glass-search build. **SceneKit Metallic Badge** — flat metal faces mirror the environment (satin for flat faces, mirror-chrome for bevels), front-fill light for static head-on metal, coin-flip settle (spring to nearest π, seeded by drag velocity), engraved-back-plane occlusion + no-pre-mirror, concentric-ring coin recipe, procedural-vs-`.usdz` ceiling. **Ring Gauges** — cap dot orbits at `side/2` (stroke centers on the path), staggered trim-fill, overachieve wrap-with-shadow. **Liquid Glass Tab ⇄ Search Morph** — fuse/separate of two `glassEffectID`s, delay keyboard focus until the morph settles.
