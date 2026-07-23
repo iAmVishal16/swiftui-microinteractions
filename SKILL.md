@@ -1311,12 +1311,24 @@ The iOS 26 signature: a floating glass tab bar whose search button morphs into a
 
 ---
 
+## Liquid Step Slider (metaball fill + tracked value bubble)
+
+A discrete step slider that *feels* liquid: the filled track and the thumb are one gooey metaball, and a value bubble floats above the thumb. (A segmented control can swap themed variations off one engine — e.g. a dark ⚡ "Charge" island and a light spectrum "Budget" track whose thumb glows the hue it sits on.)
+
+- **Fill + thumb = ONE metaball, and the mask must be `Animatable`.** Draw the fill bar and the thumb (pill or circle) as white shapes in a `Canvas` (`.alphaThreshold(min: 0.5) + .blur`), then use it as the `.mask` for the tint gradient. Make that Canvas view `View & Animatable` with `animatableData = progress` so SwiftUI interpolates the goo frame-by-frame — a raw `@State` read inside the Canvas *jumps* between steps instead of gliding. Overshoot spring (`0.5/0.55`) gives the liquid wobble; `selectionChanged` per step, `mediumImpact` at the ends.
+- **Thin-fill collapse trap.** *(headline)* A thin fill bar fused with a fat thumb — keep `blur ≤ fillHeight/2` or `alphaThreshold` eats the thin bar and it vanishes (the specific case of the metaball rule "a shrunk blob whose radius ≈ the blur collapses to a line"). `fillHeight 10 → blur 5` survives; `blur 9` erases the bar.
+- **A value bubble that tracks the thumb must live in the thumb's OWN coordinate space — never a `PreferenceKey`.** *(headline)* Publishing the thumb's frame through a `PreferenceKey` + named `coordinateSpace` and positioning the bubble at screen level *misplaces it on first appear*: the preference callback fires post-layout (and mid-entrance-animation), so it reports a stale frame and the bubble sits on top of the thumb until the first drag "fixes" it. Instead render the bubble **inside the slider's `GeometryReader`** at `.position(x: cx, y: midY - gap)` — the same `cx` that draws the thumb — so it's correct from frame one. It overflows the track frame upward (SwiftUI doesn't clip) to float above the control.
+- **Bottom-docking trap.** A bare `Spacer()` in a `VStack` inside a `ZStack` does **not** dock content to the bottom — with nothing forcing its height the `VStack` collapses to its content and centers. Pin with an explicit `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)` layer (and a separate `.top` layer for a pinned header) as sibling ZStack layers.
+- **Hue-sampling thumb.** For a spectrum-gradient slider, sample the gradient at `progress` and drive the thumb's glow/bloom `.shadow` with that color, so the thumb glows the exact hue it's sitting on as you drag — a small bespoke delight.
+
+---
+
 ## Output (Create mode)
 
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.21.0
+⚙️  swiftui-microinteractions v1.22.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>

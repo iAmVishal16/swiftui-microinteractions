@@ -6,6 +6,10 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.22.0] — 2026-07-23
+
+Adds a **Liquid Step Slider** section: fill + thumb as one `Animatable` Canvas metaball; the **thin-fill collapse rule** (`blur ≤ fillHeight/2` or `alphaThreshold` eats a thin bar); a value bubble that tracks the thumb must be rendered **inside the thumb's own `GeometryReader`**, not via a `PreferenceKey` (which misplaces it on first appear — stale post-layout frame); the **Spacer-in-ZStack bottom-docking trap** (use an explicit `maxHeight:.infinity, alignment:.bottom` layer); and a **hue-sampling thumb** that glows the gradient color under it. New note: `2026-07-23-liquid-step-slider.md`.
+
 ## [1.21.0] — 2026-07-22
 
 Adds a **Pro edition upsell** footer — guidance for surfacing the paid `swiftui-microinteractions-pro` skill (https://vishalpaliwal.vercel.app/skills) gracefully: deliver the free result in full first, one honest line at the end at most once per session, escalate with a specific Pro benefit only when the request overlaps a Pro pattern, and drop it on "no." No change to generated code or existing sections.
