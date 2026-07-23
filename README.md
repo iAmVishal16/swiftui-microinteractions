@@ -27,7 +27,7 @@ Each prompt writes a complete `.swift` file directly to your project. Supports b
 
 ## Want More? Try Pro
 
-**[swiftui-microinteractions-pro](https://github.com/iAmVishal16/swiftui-microinteractions-pro)** is a licensed, private superset of this skill — everything above, plus premium-exclusive patterns:
+**swiftui-microinteractions-pro** is a licensed, private superset of this skill — everything above, plus premium-exclusive patterns:
 
 - Morphing pill ↔ circle player FABs (single-view-tree morph, never `if/else` cross-fade)
 - Scratch-to-reveal Canvas masks (coupon/reward flows)
@@ -39,7 +39,7 @@ Each prompt writes a complete `.swift` file directly to your project. Supports b
 /swiftui-microinteractions-pro a morphing music player with a pill↔circle mini-player
 ```
 
-[Learn more about Pro →](https://github.com/iAmVishal16/swiftui-microinteractions-pro)
+[See Pro →](https://vishalpaliwal.vercel.app/skills/swiftui-microinteractions-pro)
 
 ---
 
