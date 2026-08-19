@@ -6,6 +6,12 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.23.0] — 2026-08-19
+
+Adds a **Grid ⇄ Cylinder Morph** section (flat lattice → spinning faux-3D drum, `TimelineView` + trig, no SceneKit): **radial pinch-point stagger** mirrored on the return off one shared `maxStagger`; quintic smoothstep in both directions (zero velocity *and* acceleration at each end, no spring overshoot); the 3D target needs its **own uniform lattice** with scrambled slot assignment, never the sparse source grid's `(row, col)`; **eased back-face cull** (a clamped ramp corners exactly where `cos` moves fastest); **spin-up by integrating the rate** so the angle stays continuous; a **tap-driven clamped clock** that parks at each end so the hold is open-ended while every layout line still reads one `cycleTime`; refusing taps mid-morph (opposed stagger order tears the wave); ring tilt as a **shear** and all spine terms measured off one spine half-length; hourglass silhouette by varying radius only; and edge scrims fading to the page colour (never `.clear`) in an `.overlay`, not a ZStack peer.
+
+Two cross-cutting rules extracted from the same build: **`TimelineView` haptics must trigger on a phase enum, not the clock** (an `.animation` body re-runs every frame, so a time comparison fires ~60×/s instead of once per boundary) — added to Haptics; and **heavy per-item math belongs in a plain function, not the `ViewBuilder` closure** (one-expression type-checking makes chained trig/`pow` `let`s time out the Previews thunk while a full build succeeds) — added to State & Code Rules.
+
 ## [1.22.0] — 2026-07-23
 
 Adds a **Liquid Step Slider** section: fill + thumb as one `Animatable` Canvas metaball; the **thin-fill collapse rule** (`blur ≤ fillHeight/2` or `alphaThreshold` eats a thin bar); a value bubble that tracks the thumb must be rendered **inside the thumb's own `GeometryReader`**, not via a `PreferenceKey` (which misplaces it on first appear — stale post-layout frame); the **Spacer-in-ZStack bottom-docking trap** (use an explicit `maxHeight:.infinity, alignment:.bottom` layer); and a **hue-sampling thumb** that glows the gradient color under it. New note: `2026-07-23-liquid-step-slider.md`.

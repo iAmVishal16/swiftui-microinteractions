@@ -11,6 +11,7 @@ Generate a complete, compilable SwiftUI animation file in the legendary-Animo st
 - Creating a drag interaction with resistance, snap, or threshold trigger
 - Animating SF Symbols with draw-on, breathe, bounce, replace, or variable color effects (iOS 17–26)
 - Building a Canvas loader that traces a shape outline with a comet trail (infinity, star, polygon…)
+- Morphing a flat grid of elements into a faux-3D spinning form (drum, globe, helix) and back
 - Editing an existing SwiftUI animation file
 
 ## Mode Detection
@@ -192,6 +193,8 @@ if !didCrossThreshold, y > threshold {
 ```
 
 Apply the same gate (without rearm, since it only happens once) to the touch-down `lightImpact`, with a small dead-zone (`y > 2`) so sub-pixel jitter at gesture start doesn't fire it prematurely.
+
+**`TimelineView` haptics — trigger on a phase enum, never on the clock.** A `.animation`-schedule body re-runs ~60×/s, so `.sensoryFeedback(trigger:)` on a raw time value (or a test like `clock >= tLiftEnd`) fires on every frame after the boundary, not on the boundary. Reduce the clock to a small `Equatable` phase enum (`.flat / .lifting / .spinning / .settling`) and trigger on *that* — "the phase changed" happens exactly once per boundary. Derive the phase from the clock rather than from the tap's `Bool`: a tap tells you a morph *began*, only the clock tells you it finished, and the arrival is usually the beat most worth marking. Return `nil` from the closure for phases that shouldn't speak.
 
 **SourceKit `HapticFeedback` false positive — always ignore:**
 In files written to `Carousels/` or `Animations/`, SourceKit reports `Cannot find 'HapticFeedback' in scope`. This is **not a real error** — SourceKit analyzes the new file in isolation and doesn't see other module members. `HapticFeedback.swift` is registered in the Sources build phase; the real compiler resolves it correctly. Do not add `import UIKit`, do not re-declare the struct, do not alter the code.
@@ -620,6 +623,8 @@ GeometryReader { geo in
 - Constants: camelCase `private let` at struct level (2–5 values) — never SCREAMING_SNAKE_CASE
 - Liquid metaball: render blobs in a `Canvas` with `.addFilter(.alphaThreshold)` + `.addFilter(.blur)` — see the **Canvas Metaball** section. (Older alt: white circles on black + `.blur` + `.contrast(50)` + `.blendMode(.screen)`.)
 - Multi-phase sequences: stacked `DispatchQueue.main.asyncAfter` with overlapping delays
+
+**Heavy per-item math goes in a plain function, not the `ViewBuilder` closure.** SwiftUI type-checks a ViewBuilder body as one big expression, so a couple dozen chained `let`s of trig/`pow` inside a `ForEach` closure makes that check exponentially slower — slow enough that the Xcode Previews build *thunk* times out while a full app build still succeeds. Compute the per-item geometry in a `private func layoutFor(_ item:) -> ItemLayout` returning a small struct; a plain function type-checks statement by statement. Hoist frame-invariant values (cell size, centre, radii) into a context struct built once per `GeometryReader` pass rather than recomputing them per item.
 
 **ZStack frame trap — always apply both rules together:**
 When a ZStack has a fixed `.frame(height:)` AND contains a `LazyVGrid`, `List`, or any tall component:
@@ -1323,12 +1328,29 @@ A discrete step slider that *feels* liquid: the filled track and the thumb are o
 
 ---
 
+## Grid ⇄ Cylinder Morph (flat lattice → spinning drum)
+
+A flat grid of dots (QR code, avatar wall, calendar) that peels off the plane, gathers into a slowly spinning 3D drum, holds, and lays back down — one tap each way. Faux-3D from trig alone in a `TimelineView`, no SceneKit.
+
+- **Stagger radially from a pinch point, and mirror it on the way back.** *(headline)* Give each dot a `pinchFraction` = its straight-line distance from the grid centre ÷ the centre-to-corner distance; the lift waits `pinchFraction * maxStagger`, the settle waits `(1 - pinchFraction) * maxStagger` off the **same** `maxStagger`. Sharing one budget is what makes the two halves mirror images — the dot that led the lift trails the settle, like cloth pinched, raised, then laid down from the rim inward. Row-index stagger reads as a wipe; Euclidean distance reads as a ring spreading. The spread must be comparable to the trip (`maxStagger 0.8` vs `morphDuration 0.9`) — a per-row `0.02` (≈0.2s end to end against a 1.1s trip) is invisible and the grid looks like it moved all at once.
+- **Quintic smoothstep, same curve both directions.** `t*t*t*(t*(t*6 - 15) + 10)` is flat in its first *and* second derivative at both ends: zero velocity stops a dot looking flicked, zero acceleration stops the departure looking struck. Prefer it to the cubic here, and prefer it to a spring — any overshoot throws a dot past its slot and pulls it back, which reads as thrown rather than carried.
+- **The 3D target needs its OWN uniform lattice — never reuse the source grid's `(row, col)`.** *(headline)* A sparse source (QR, any grid with holes) mapped cell-for-cell onto a drum gives ragged, patchy rings. Number the drum evenly (`cylRows × cylCols`) and hand slots out in a **scrambled but fixed** order (`(row*7919 + col*104729) % 100003`), so the dots that find no slot are scattered over the whole square as the drum forms — QR-ordered slots make the leftovers all come from the bottom, and the source looks like it's being erased bottom-up.
+- **Back-face cull with an eased fade, not a clamped ramp.** `depth = cos(colAngle)` (1 = facing viewer, −1 = round the back); feed it through the same smoothstep — `smoothMorph((depth + 0.10) / 0.55)` — instead of a linear clamp. Depth is a cosine, so it changes fastest *exactly* at the silhouette, which is where a clamped ramp's corner lands: every dot eases in gently then gets chopped off at full speed, twice per revolution.
+- **Spin-up: animate the integral of the rate, not the rate.** A drum that snaps to full speed on frame one is morphing dots into slots already sweeping sideways at a screen-width a second — they arrive, but never at rest. Ramp `v = vmax(1 − e^(−t/τ))` and write its **exact integral** into the angle: `angle = vmax * (t − τ(1 − e^(−t/τ)))`, so the angle itself is continuous and starts at zero rate. `τ ≈ 1.2s` has it ~¾ up to speed as the morph lands.
+- **Tap-driven clamped clock — keep the one `cycleTime` every layout line reads.** Swap a `modulo` loop for `min(tForwardEnd, tFlatEnd + timeSince(expandTap))` while expanded and `min(totalCycle, tHoldEnd + timeSince(collapseTap))` while not: the clock runs forward and **parks** at each end, so the hold lasts as long as the user leaves it without one line of geometry knowing anything changed. Time rotation off the expand tap on a *separate* clock — a drum driven by `cycleTime` freezes the instant the lift clamps, and it must keep turning through the collapse.
+- **Refuse taps mid-morph.** Since the two halves hand delays out in opposite order, reversing in flight makes every dot jump to a different point on its own trip in a single frame — the wave tears. Guard both branches on `timeSince(lastTap) >= morphDuration + maxStagger`.
+- **Tilt rings with a shear, not a rotation.** `y += x * tan(θ)` tips each ring without moving any dot sideways, so it costs vertical space only and leaves the whole horizontal budget to the radius and the spine sweep. Whatever the spine's lean / bow / S-curl throws sideways is paid for by cutting the radius, and all three must be measured off the **same spine half-length** (never off screen width, which drifts out of proportion on a shorter phone). For an S-spine, apply the sign by hand — `pow(abs(n), e) * (n < 0 ? -1 : 1)` — never feed a negative base to `pow` with a non-integral exponent.
+- **Hourglass silhouette = vary the radius only.** Keep row *spacing* perfectly uniform and scale radius by `waist + (edge − waist) * n²` (`n` = −1…1 up the drum). The squared term keeps the tangent flat at the waist so each side is one smooth C — a linear falloff meets in a corner at the centre. Flare by raising the **edge** factor alone; raising both just fattens the tube and crowds the circles at the pinch, where they already sit closest.
+- **Edge scrims fade to the page colour at zero alpha, never `.clear`.** `.clear` is transparent *black*, so interpolating toward it drags a grey cast through the middle of the ramp — match `Color(...).opacity(0)` to the exact background. Attach them as an `.overlay`, not a ZStack sibling: an overlay is sized to its host and never feeds back into the `GeometryReader`'s reported height, whereas a ZStack peer that ignores the safe area grows the reader and silently resizes the drum. Fading the top/bottom ~20% also stops the sparse flared rims reading as loose scattered circles.
+
+---
+
 ## Output (Create mode)
 
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.22.0
+⚙️  swiftui-microinteractions v1.23.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>
