@@ -12,6 +12,7 @@ Generate a complete, compilable SwiftUI animation file in the legendary-Animo st
 - Animating SF Symbols with draw-on, breathe, bounce, replace, or variable color effects (iOS 17–26)
 - Building a Canvas loader that traces a shape outline with a comet trail (infinity, star, polygon…)
 - Morphing a flat grid of elements into a faux-3D spinning form (drum, globe, helix) and back
+- Building a card-reveal pack (swipe-to-tear, 3D card flip, staggered stat fills) or Canvas power-effect showcase
 - Editing an existing SwiftUI animation file
 
 ## Mode Detection
@@ -626,6 +627,12 @@ GeometryReader { geo in
 
 **Heavy per-item math goes in a plain function, not the `ViewBuilder` closure.** SwiftUI type-checks a ViewBuilder body as one big expression, so a couple dozen chained `let`s of trig/`pow` inside a `ForEach` closure makes that check exponentially slower — slow enough that the Xcode Previews build *thunk* times out while a full app build still succeeds. Compute the per-item geometry in a `private func layoutFor(_ item:) -> ItemLayout` returning a small struct; a plain function type-checks statement by statement. Hoist frame-invariant values (cell size, centre, radii) into a context struct built once per `GeometryReader` pass rather than recomputing them per item.
 
+**Counter-flip for cumulative `rotation3DEffect`.** *(headline)* A Y-axis `rotation3DEffect` mirrors all inner content — text, images, overlays — at every odd multiple of 180°. When a card accumulates rotation across multiple flips (e.g. 180° per "next card"), the content reads backwards on every other card. Fix: compute `let halfTurns = Int(round(angle / 180))` and apply `.scaleEffect(x: halfTurns % 2 != 0 ? -1 : 1)` on the inner content *before* the `rotation3DEffect`. The counter-flip is invisible to the user because the 3D rotation already mirrors the view — the two cancel out and content always reads correctly.
+
+**`SeededRNG` for deterministic Canvas particles.** `CGFloat.random()` inside a `Canvas` render closure (or any `@ViewBuilder`) produces different values every frame, making particles flicker and teleport. Use a simple seeded xorshift RNG (`struct SeededRNG { var state: UInt64; mutating func unit() -> CGFloat }`) instead. The seed stays constant frame-to-frame so positions are stable; change the seed on *events* (new lightning strike, new smash impact) to regenerate the pattern. Pre-compute static particle arrays via a plain function for non-Canvas `ForEach` bodies — never call `.random()` inside a `@ViewBuilder`.
+
+**Stable `ForEach` identity.** Prefer `ForEach(Array(items.enumerated()), id: \.element.id)` over `ForEach(items.indices, id: \.self)` — index-based identity causes SwiftUI to tear down and rebuild views when the array reorders, breaking in-flight animations and wasting view identity.
+
 **ZStack frame trap — always apply both rules together:**
 When a ZStack has a fixed `.frame(height:)` AND contains a `LazyVGrid`, `List`, or any tall component:
 1. Conditionally render the tall child only when needed (`if isExpanded || childVisible`)
@@ -700,6 +707,7 @@ The archetype drives physics, haptics, and container defaults. Pick the closest 
 | **Metal Shader** | "liquid chrome", "molten metal", "holographic", "plasma", "shader" | full-screen | `TimelineView` clock (never spring) | lightImpact on touch |
 | **Loading Indicator** | "loading", "spinner", "progress", "scanning" | inline | `.linear(duration:)` | none |
 | **3D Object Showcase** | "3D", "SceneKit", "spin the cover", "album", "boxed product" | embedded or full-screen | SceneKit rig, `SCNTransaction.disableActions` for driven properties (never spring) | selectionChanged per settle / none if passive |
+| **Card Pack Reveal** | "pack", "tear open", "card flip", "reveal", "unbox", "foil" | full-screen | `.easeInOut` tear + `.spring(0.6/0.7)` flip + `TimelineView` clock for Canvas effects | heavy on tear, medium on flip, success on rare |
 
 Print the resolved archetype on the `🎯  Archetype:` line. If the user's prompt overrides any default in this table, use their value and note the override in parentheses.
 
@@ -882,6 +890,8 @@ HStack(spacing: 7) {
 ```
 
 The active dot **stretching into a capsule** (22pt vs a 7pt circle) rather than just changing color/opacity is what makes it read as premium — a plain color-only dot indicator looks dated by comparison.
+
+**Sliding-indicator variant (for pixel-perfect centering).** When the active capsule must land dead-center on the target dot (e.g. a tier-colored capsule over neutral dots), render all dots as static circles and overlay one sliding `Capsule` with `.matchedGeometryEffect(id: "activeDot", in: namespace)` — SwiftUI interpolates the position exactly. Use this when multiple dots have *different* active colors (the capsule color changes per index) and manual offset math drifts; use the simpler per-dot width approach above when all dots share one color.
 
 ### Detail text swap on selection (lightweight alternative to `.numericText`)
 
@@ -1350,7 +1360,7 @@ A flat grid of dots (QR code, avatar wall, calendar) that peels off the plane, g
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.23.0
+⚙️  swiftui-microinteractions v1.24.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>
@@ -1374,7 +1384,14 @@ Check for a `.xcodeproj` file:
 find . -maxdepth 3 -name "*.xcodeproj" -type d | head -1
 ```
 
-**If `.xcodeproj` found** → register the file in `project.pbxproj` using this Python script:
+**If `.xcodeproj` found** → first check for file-system-synchronized groups. If the `.pbxproj` contains `PBXFileSystemSynchronizedRootGroup` (Xcode 16+, `objectVersion >= 77`), files placed in the source directory are compiled automatically — **skip the registration script entirely** and print:
+
+```
+📦  File-system-synchronized project — no .pbxproj edit needed.
+    File placed in: <directory>
+```
+
+Otherwise, register the file in `project.pbxproj` using this Python script:
 
 ```python
 import uuid, re

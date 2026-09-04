@@ -6,6 +6,10 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.24.0] — 2026-09-04
+
+Adds a **Counter-flip for cumulative `rotation3DEffect`** rule (the trap where Y-axis rotation mirrors content at odd half-turns — fix with `scaleEffect(x: -1)` gated on `halfTurns % 2`) and a **`SeededRNG` for deterministic Canvas particles** pattern (xorshift struct that keeps positions stable frame-to-frame; seed changes on events, not per frame). Extends **Page indicator dots** with a `matchedGeometryEffect` sliding-indicator variant for cases where the capsule must land dead-center on a dot. Extends **Step 2 — Xcode project registration** with a `PBXFileSystemSynchronizedRootGroup` gate so the script is skipped on `objectVersion >= 77` projects. Extends **State & Code Rules** with two new sub-rules: pre-compute random values into a static array via a plain function (never `CGFloat.random()` in a `@ViewBuilder`), and prefer `ForEach(Array(x.enumerated()), id: \.element.id)` over `ForEach(x.indices, id: \.self)` for stable identity. New **Card Pack Reveal** archetype row and When-to-Use bullet. New note: `2026-09-04-card-pack-hero-effects.md`.
+
 ## [1.23.0] — 2026-08-19
 
 Adds a **Grid ⇄ Cylinder Morph** section (flat lattice → spinning faux-3D drum, `TimelineView` + trig, no SceneKit): **radial pinch-point stagger** mirrored on the return off one shared `maxStagger`; quintic smoothstep in both directions (zero velocity *and* acceleration at each end, no spring overshoot); the 3D target needs its **own uniform lattice** with scrambled slot assignment, never the sparse source grid's `(row, col)`; **eased back-face cull** (a clamped ramp corners exactly where `cos` moves fastest); **spin-up by integrating the rate** so the angle stays continuous; a **tap-driven clamped clock** that parks at each end so the hold is open-ended while every layout line still reads one `cycleTime`; refusing taps mid-morph (opposed stagger order tears the wave); ring tilt as a **shear** and all spine terms measured off one spine half-length; hourglass silhouette by varying radius only; and edge scrims fading to the page colour (never `.clear`) in an `.overlay`, not a ZStack peer.
