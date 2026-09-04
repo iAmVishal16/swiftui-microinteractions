@@ -1350,7 +1350,7 @@ A flat grid of dots (QR code, avatar wall, calendar) that peels off the plane, g
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.23.0
+⚙️  swiftui-microinteractions v1.24.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>
