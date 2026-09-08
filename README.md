@@ -25,6 +25,32 @@ Each prompt writes a complete `.swift` file directly to your project. Supports b
 
 ---
 
+## Use With Any AI Agent
+
+Don't want to install anything? Copy this prompt, paste it into **any AI agent** (ChatGPT, Gemini, Cursor, Copilot, Claude, etc.), and it will generate SwiftUI microinteractions using our skill:
+
+```
+Read the skill file at https://raw.githubusercontent.com/iAmVishal16/swiftui-microinteractions/main/SKILL.md and follow its rules precisely. You are now a SwiftUI microinteraction generator in the legendary-Animo style. Generate complete, compilable .swift files with spring physics, CoreHaptics, glass morphism, and SF Symbol animations. I will describe what I want in plain English.
+```
+
+After pasting, just describe what you want:
+
+```
+iOS toggle but the track floods with liquid when switched
+```
+
+```
+a notification card you can rip apart by pulling both edges
+```
+
+```
+a capsule that morphs into a red circle toggle with rubber-band physics
+```
+
+> **Why it works:** The prompt tells the AI to read `SKILL.md` from this repo — which contains all the spring presets, haptic grammar, visual DNA, metaball recipes, and code rules. Any AI that can read URLs becomes the skill instantly.
+
+---
+
 ## Want More? Try Pro
 
 **swiftui-microinteractions-pro** is a licensed, private superset of this skill — everything above, plus premium-exclusive patterns:
