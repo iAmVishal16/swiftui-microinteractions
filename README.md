@@ -25,32 +25,6 @@ Each prompt writes a complete `.swift` file directly to your project. Supports b
 
 ---
 
-## Use With Any AI Agent
-
-Don't want to install anything? Copy this prompt, paste it into **any AI agent** (ChatGPT, Gemini, Cursor, Copilot, Claude, etc.), and it will generate SwiftUI microinteractions using our skill:
-
-```
-Read the skill file at https://raw.githubusercontent.com/iAmVishal16/swiftui-microinteractions/main/SKILL.md and follow its rules precisely. You are now a SwiftUI microinteraction generator in the legendary-Animo style. Generate complete, compilable .swift files with spring physics, CoreHaptics, glass morphism, and SF Symbol animations. I will describe what I want in plain English.
-```
-
-After pasting, just describe what you want:
-
-```
-iOS toggle but the track floods with liquid when switched
-```
-
-```
-a notification card you can rip apart by pulling both edges
-```
-
-```
-a capsule that morphs into a red circle toggle with rubber-band physics
-```
-
-> **Why it works:** The prompt tells the AI to read `SKILL.md` from this repo — which contains all the spring presets, haptic grammar, visual DNA, metaball recipes, and code rules. Any AI that can read URLs becomes the skill instantly.
-
----
-
 ## Want More? Try Pro
 
 **swiftui-microinteractions-pro** is a licensed, private superset of this skill — everything above, plus premium-exclusive patterns:
@@ -127,6 +101,34 @@ curl -o ~/.claude/commands/swiftui-microinteractions.md \
 ```
 
 Skill is then available as `/swiftui-microinteractions` in any Claude Code session.
+
+### Option D: No Install — Any AI Agent
+
+Nothing to install: paste this prompt into an agent that can fetch a URL (Claude, ChatGPT with browsing, Cursor, Windsurf), and it reads the skill straight from this repo.
+
+```
+Read the skill file at https://raw.githubusercontent.com/iAmVishal16/swiftui-microinteractions/main/SKILL.md and follow its rules precisely. You are now a SwiftUI microinteraction generator in the legendary-Animo style. Generate complete, compilable .swift files with spring physics, CoreHaptics, glass morphism, and SF Symbol animations. I will describe what I want in plain English.
+```
+
+Then just describe what you want:
+
+```
+iOS toggle but the track floods with liquid when switched
+```
+
+```
+a notification card you can rip apart by pulling both edges
+```
+
+```
+a capsule that morphs into a red circle toggle with rubber-band physics
+```
+
+**Pin a version.** `main` always serves the newest rules; swap it for a release tag (e.g. `.../v1.22.0/SKILL.md`) when you want the same prompt to keep producing the same output.
+
+**If your agent can't fetch URLs** (ChatGPT without browsing, Gemini, Copilot) or silently truncates — `SKILL.md` is ~100 KB — download it and attach the file to the conversation instead, then use the same prompt without the first sentence.
+
+> **Why it works:** `SKILL.md` carries the whole skill — spring presets, haptic grammar, visual DNA, metaball recipes, code rules. Any agent that can actually read it inherits all of it.
 
 ---
 
