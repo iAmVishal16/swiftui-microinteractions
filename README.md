@@ -102,15 +102,30 @@ curl -o ~/.claude/commands/swiftui-microinteractions.md \
 
 Skill is then available as `/swiftui-microinteractions` in any Claude Code session.
 
-### Option D: No Install — Any AI Agent
+### Option D: Install With Any AI Agent
 
-Nothing to install: paste this prompt into an agent that can fetch a URL (Claude, ChatGPT with browsing, Cursor, Windsurf), and it reads the skill straight from this repo.
+No CLI to learn: paste this into any agentic coding tool (Claude Code, Cursor, Windsurf, Copilot agent, Codex CLI) and it installs the skill for itself.
 
 ```
-Read the skill file at https://raw.githubusercontent.com/iAmVishal16/swiftui-microinteractions/main/SKILL.md and follow its rules precisely. You are now a SwiftUI microinteraction generator in the legendary-Animo style. Generate complete, compilable .swift files with spring physics, CoreHaptics, glass morphism, and SF Symbol animations. I will describe what I want in plain English.
+Install the swiftui-microinteractions skill for yourself.
+
+1. Fetch https://raw.githubusercontent.com/iAmVishal16/swiftui-microinteractions/main/SKILL.md
+   with curl (or your shell) so the file lands byte-exact — do not retype,
+   summarize, or reformat it.
+2. Save it where you read your own instructions from:
+     Claude Code     → ~/.claude/skills/swiftui-microinteractions/SKILL.md
+     Cursor          → .cursor/rules/swiftui-microinteractions.mdc
+     Windsurf        → .windsurf/rules/swiftui-microinteractions.md
+     GitHub Copilot  → append to .github/copilot-instructions.md
+     anything else   → append to AGENTS.md in the repo root
+3. Confirm the install by printing the "swiftui-microinteractions vX.Y.Z"
+   line from the file you saved.
+
+From now on, when I describe a SwiftUI animation, follow that file's rules
+precisely and write a complete, compilable .swift file.
 ```
 
-Then just describe what you want:
+Once it's installed, just describe what you want:
 
 ```
 iOS toggle but the track floods with liquid when switched
@@ -124,11 +139,9 @@ a notification card you can rip apart by pulling both edges
 a capsule that morphs into a red circle toggle with rubber-band physics
 ```
 
-**Pin a version.** `main` always serves the newest rules; swap it for a release tag (e.g. `.../v1.22.0/SKILL.md`) when you want the same prompt to keep producing the same output.
+**Pin a version.** `main` always serves the newest rules; swap it for a release tag (e.g. `.../v1.24.0/SKILL.md`) when you want the install pinned to one version.
 
-**If your agent can't fetch URLs** (ChatGPT without browsing, Gemini, Copilot) or silently truncates — `SKILL.md` is ~100 KB — download it and attach the file to the conversation instead, then use the same prompt without the first sentence.
-
-> **Why it works:** `SKILL.md` carries the whole skill — spring presets, haptic grammar, visual DNA, metaball recipes, code rules. Any agent that can actually read it inherits all of it.
+> **Why it works:** `SKILL.md` is the whole skill in one file — spring presets, haptic grammar, visual DNA, metaball recipes, code rules — and it already carries the `name` / `description` frontmatter Claude Code expects, so dropping it in place is the entire install.
 
 ---
 
