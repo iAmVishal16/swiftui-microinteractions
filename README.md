@@ -28,7 +28,6 @@ Each prompt writes a complete `.swift` file directly to your project. Supports b
   <img src="docs/demo/demo-2.gif" width="150" alt="Demo 2" />
   <img src="docs/demo/demo-3.gif" width="150" alt="Demo 3" />
   <img src="docs/demo/demo-4.gif" width="150" alt="Demo 4" />
-  <img src="docs/demo/demo-5.gif" width="150" alt="Demo 5" />
 </p>
 
 ---
