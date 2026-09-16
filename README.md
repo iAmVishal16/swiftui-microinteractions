@@ -23,12 +23,18 @@ Generate premium SwiftUI animations in the legendary-Animo style — spring phys
 
 Each prompt writes a complete `.swift` file directly to your project. Supports both create and edit modes.
 
-<p align="center">
-  <img src="docs/demo/demo-1.gif" width="150" alt="Demo 1" />
-  <img src="docs/demo/demo-2.gif" width="150" alt="Demo 2" />
-  <img src="docs/demo/demo-3.gif" width="150" alt="Demo 3" />
-  <img src="docs/demo/demo-4.gif" width="150" alt="Demo 4" />
-</p>
+<table align="center">
+  <tr>
+    <td><img src="docs/demo/demo-1.gif" width="150" alt="Demo 1" /></td>
+    <td><img src="docs/demo/demo-2.gif" width="150" alt="Demo 2" /></td>
+    <td><img src="docs/demo/demo-3.gif" width="150" alt="Demo 3" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/demo/demo-4.gif" width="150" alt="Demo 4" /></td>
+    <td><img src="docs/demo/demo-5.gif" width="150" alt="Demo 5" /></td>
+    <td><img src="docs/demo/demo-6.gif" width="150" alt="Demo 6" /></td>
+  </tr>
+</table>
 
 ---
 
