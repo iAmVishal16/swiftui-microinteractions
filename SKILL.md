@@ -13,6 +13,10 @@ Generate a complete, compilable SwiftUI animation file in the legendary-Animo st
 - Building a Canvas loader that traces a shape outline with a comet trail (infinity, star, polygon…)
 - Morphing a flat grid of elements into a faux-3D spinning form (drum, globe, helix) and back
 - Building a card-reveal pack (swipe-to-tear, 3D card flip, staggered stat fills) or Canvas power-effect showcase
+- Building a photo viewer / immersive pager where a caption, a thumbnail strip and the chrome all follow one continuous position
+- Building a focus-scaled thumbnail strip or filmstrip scrubber that both reads *and* drives a pager
+- Scaffolding a multi-screen flow (onboarding → browse → detail → checkout → tracking) with one shared motion token set
+- Building a live route / delivery tracking screen (MapKit courier, dashed route, docked status sheet)
 - Editing an existing SwiftUI animation file
 
 ## Mode Detection
@@ -54,6 +58,9 @@ Translate any designer words in the prompt into skill-understood terms before ru
 | wiggle / shake | `.wiggle value:` — error / rejection signal |
 | pop | quick `.scaleEffect` overshoot + snap back |
 | morph | Glass Morph archetype or shape interpolation |
+| immersive / lights-out / full-bleed / distraction-free | chrome-hidden state that drives *layout*, not just visibility (see Fractional-Progress Pagers) |
+| scrub / skim / flick through | fractional `pageProgress` driver, `predictedEndTranslation` settle |
+| dissolve / feather / soft edge / bleed into | `.mask` with a blurred inset shape — never a painted scrim |
 | liquid chrome / molten metal / mercury / brushed steel | Metal Shader — stitchable `.colorEffect` (see Metal Shaders section) |
 | holographic / iridescent / oil-slick / foil / prism | Metal Shader — fresnel rainbow in a `.colorEffect` |
 | plasma / lava / nebula / aurora / fluid ink | Metal Shader — FBM field in a `.colorEffect` |
@@ -73,6 +80,8 @@ Translate any designer words in the prompt into skill-understood terms before ru
 | segmented control / pill selector / tab strip | toggle group | `Picker(.segmented)` or custom pill |
 | skeleton / shimmer / placeholder | loading placeholder | `redacted(.placeholder)` or animated opacity |
 | spinner / loader / throbber | activity indicator | `ProgressView` |
+| filmstrip / thumbnail strip / reel / scrubber | photo rail | focus-scaled strip (see Focus-Scaled Thumbnail Strips) |
+| photo viewer / lightbox / gallery detail | image pager | fractional-progress pager + immersive toggle |
 | contextual menu / long-press menu | press-hold menu | `.contextMenu` |
 | action sheet / bottom action menu | options sheet | `.confirmationDialog` |
 
@@ -195,6 +204,41 @@ if !didCrossThreshold, y > threshold {
 
 Apply the same gate (without rearm, since it only happens once) to the touch-down `lightImpact`, with a small dead-zone (`y > 2`) so sub-pixel jitter at gesture start doesn't fire it prematurely.
 
+**Key `.sensoryFeedback` to derived state, not to the gesture that changed it.** When more than one control drives the same value — a card swipe, a strip fling and a tap all moving one pager — a haptic fired inside `onEnded` means every new driver has to remember to buzz, and a fling that crosses four pages buzzes once. Put the feedback on the container and trigger it on the *derived* index instead:
+
+```swift
+.sensoryFeedback(.selection, trigger: selection)                      // selection = Int(progress.rounded())
+.sensoryFeedback(.impact(weight: .medium), trigger: isChromeVisible)  // a commit, not a step
+```
+
+Every driver reports identically, including one tick per page passed mid-fling — because the trigger is "the landed page changed," which is true regardless of what moved it. Reach for a gesture-local haptic only for things that have no derived state to watch (touch-down, threshold crossings).
+
+**Re-arm the generator immediately after every hit.** `UIImpactFeedbackGenerator` powers down its Taptic Engine within about a second of being prepared, and the first hit after that is measurably late. Call `prepare()` in `onAppear` *and* again right after each `impactOccurred()`:
+
+```swift
+enum Haptics {
+    private static let light = UIImpactFeedbackGenerator(style: .light)
+    private static let rigid = UIImpactFeedbackGenerator(style: .rigid)
+    private static let selection = UISelectionFeedbackGenerator()
+    private static let notification = UINotificationFeedbackGenerator()
+
+    static func prepare() { light.prepare(); selection.prepare() }                 // call in onAppear
+    static func tap()   { light.impactOccurred(); light.prepare() }                // re-arm
+    static func tick()  { selection.selectionChanged(); selection.prepare() }
+    static func thud()  { rigid.impactOccurred(intensity: 0.7); rigid.prepare() }  // firm, not harsh
+    static func success() { notification.notificationOccurred(.success) }          // no prepare needed
+}
+```
+
+`impactOccurred(intensity:)` is the knob for "firm but not a slap" — `.rigid` at `0.7` is a confirmation, `.heavy` at full is a destruction. `UINotificationFeedbackGenerator` has no meaningful prepare cost, so reserve `.success` for the one moment per flow that actually completed something.
+
+**Let a departure haptic land before the screen changes.** A `NavigationStack` push or a full-screen transition starting on the same frame as the haptic swallows it and the user feels nothing. Fire, then navigate ~0.18–0.2s later:
+
+```swift
+Haptics.success()
+DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { onBuy(size, quantity) }
+```
+
 **`TimelineView` haptics — trigger on a phase enum, never on the clock.** A `.animation`-schedule body re-runs ~60×/s, so `.sensoryFeedback(trigger:)` on a raw time value (or a test like `clock >= tLiftEnd`) fires on every frame after the boundary, not on the boundary. Reduce the clock to a small `Equatable` phase enum (`.flat / .lifting / .spinning / .settling`) and trigger on *that* — "the phase changed" happens exactly once per boundary. Derive the phase from the clock rather than from the tap's `Bool`: a tap tells you a morph *began*, only the clock tells you it finished, and the arrival is usually the beat most worth marking. Return `nil` from the closure for phases that shouldn't speak.
 
 **SourceKit `HapticFeedback` false positive — always ignore:**
@@ -232,6 +276,31 @@ The result is a soft, color-tinted halo instead of a neutral drop shadow — res
 
 **Gradients:** two-tone only · blob fill `[.white, Color(white: 0.88)]` · progress `[cyan, green]`
 
+**Custom fonts — register in `Info.plist`, then wrap the weights in an enum.** `.custom()` takes a **PostScript name**, not a family name plus a weight, so `.custom("Sora", size: 16).weight(.bold)` silently renders regular. Front the family with one typed helper so no call site ever spells a name:
+
+```swift
+extension Font {
+    static func sora(_ weight: SoraWeight, _ size: CGFloat) -> Font { .custom(weight.postscriptName, size: size) }
+}
+enum SoraWeight {
+    case regular, medium, semibold, bold, extrabold
+    var postscriptName: String {
+        switch self {
+        case .regular:   return "Sora"            // ← NOT "Sora-Regular"
+        case .medium:    return "Sora-Medium"
+        case .semibold:  return "Sora-SemiBold"
+        case .bold:      return "Sora-Bold"
+        case .extrabold: return "Sora-ExtraBold"
+        }
+    }
+}
+```
+
+- **The regular weight usually has no suffix.** Most families ship the regular face as the bare family name; `"Sora-Regular"` is not a PostScript name and falls back to the system font — which looks *almost* right, which is why it ships.
+- Add every `.ttf`/`.otf` filename to `UIAppFonts` in `Info.plist` **and** confirm the files are in the target's Copy Bundle Resources. Missing either one fails silently to the system font.
+- Verify names with `for f in UIFont.fontNames(forFamilyName: "Sora") { print(f) }` rather than guessing from the filename — they differ more often than not.
+- Custom faces have their own metrics: pair them with explicit `.lineSpacing()` and `.tracking()` (e.g. `tracking(2–3)` on small uppercase eyebrow labels), since the system's optical defaults were tuned for SF.
+
 ---
 
 ## Light Theme
@@ -253,6 +322,20 @@ Rules:
 - **No `.shadow` between stacked light surfaces** — a white row on a `0.92` background already reads as raised. Reserve a shadow for a single floating primary (e.g. a dark CTA), never for every row.
 - Accent colors must be **deepened** for contrast on white — e.g. cyan `Color(red: 0.30, green: 0.52, blue: 0.95)`, the opposite of the dark-bg cyan.
 - A dark capsule CTA (`Color(white: 0.10)` fill, white label) is the light-theme equivalent of the glass button.
+
+**Raised faces come from an *inner* shadow, not an outer one.** `.shadow(.inner(...))` is a `ShapeStyle` modifier (not the view modifier), so it composes into a fill and can be stored as an `AnyShapeStyle` token. A tight dark arc hugging one edge is what reads as a physically raised cap:
+
+```swift
+static let raisedSurface = AnyShapeStyle(
+    Color.white.shadow(.inner(color: .black.opacity(0.35), radius: 1.5, x: 0, y: -2))
+)
+// usage: RoundedRectangle(cornerRadius: r, style: .continuous).fill(raisedSurface)
+```
+
+- **A *negative* `y` puts the inner shadow at the bottom**; positive puts it at the top. Bottom-shaded reads as lit from above, i.e. raised — the reverse reads as a dent.
+- **Keep `radius` small (1–2pt).** The tight blur is what keeps it a crisp arc; widening it turns the cap into a soft dome and washes the white out entirely.
+- **The face must out-brighten its background to read as raised** — use *pure* `Color.white` against a warm or mid gray, not the `0.98` surface token. On a white background there's no headroom left and an inner shadow alone won't lift it; add a 2–3pt outer offset shadow instead.
+- **Warm near-whites beat neutral grays for photo and gallery surfaces.** A three-stop vertical gradient (`0.925 → 0.978 → 0.95` with a slight red bias) lifts the middle of the screen so a centred subject sits in light, where a flat `0.92` reads as paper. Keep the deltas under 0.06 or it reads as a gradient rather than as a room.
 
 ### Adaptive (support BOTH light + dark)
 
@@ -543,6 +626,25 @@ Non-obvious rules baked in:
 - **Lift-inside-to-fire** — verify the finger lifted within ~20pt before running `action`; a drag-away must cancel.
 - `pressedScale` ≈ `0.90` for round icon buttons, ≈ `0.965` for wide rows.
 
+**`ButtonStyle` + `.sensoryFeedback` is the right call when you only need the down edge.** `configuration.isPressed` *does* flip on touch-down, so a `ButtonStyle` can carry a press-down haptic — return `nil` from the feedback closure for the release edge:
+
+```swift
+private struct ChromeButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .sensoryFeedback(trigger: configuration.isPressed) { _, pressed in
+                pressed ? .impact(weight: .light) : nil   // down edge only — a tap is one contact
+            }
+    }
+}
+```
+
+Choose between the two deliberately:
+- **`PressableScale` (gesture)** when you need **lift-inside-to-fire** — a drag-away must cancel — or the control lives in a `ScrollView` and needs `.simultaneousGesture`.
+- **`ButtonStyle`** when the control is a real `Button` and you want to keep its **accessibility semantics** (VoiceOver activation, Switch Control, Full Keyboard Access), which a raw `DragGesture` on a non-button view discards. The down-edge haptic is the only thing the gesture would have bought you.
+
+**Never stack a `scaleEffect` press on `.glassEffect(.regular.interactive())`.** Interactive glass supplies its own press response — its own scale, its own specular shift. Adding a second one means two press animations on one control fighting each other, and the glass visibly stutters. On an interactive-glass control, the `ButtonStyle` above should carry the haptic **and nothing else**.
+
 ---
 
 ## Entrance / Appear Animation
@@ -566,6 +668,36 @@ ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
 - Combine `opacity + offset(y:) + scaleEffect(anchor:.top)` for a soft rise-and-settle; `0.07s` per-index delay reads as a cascade.
 - **Inside a `.sheet`, `@State` resets on every presentation** — so this re-fires each time the sheet opens, a free "assembles itself" entrance with no extra code.
 - Verification trap (same as `.drawOn`): never initialise the flag to its destination — the transition won't play.
+
+**Hero screens want two clocks, not one.** A full-bleed photo and the copy over it should not arrive together: settle the image slowly behind text that lands later, so the eye reads the image as the room and the text as the message.
+
+```swift
+.onAppear {
+    withAnimation(.easeOut(duration: 1.1))            { heroAppeared = true }      // 1.12 → 1.0 scale
+    withAnimation(.spring(response: 0.55, dampingFraction: 0.82).delay(0.35)) { contentAppeared = true }
+}
+// hero:    .scaleEffect(heroAppeared ? 1.0 : 1.12).opacity(heroAppeared ? 1 : 0).clipped()
+// content: .opacity(contentAppeared ? 1 : 0).offset(y: contentAppeared ? 0 : 24)
+```
+
+A **slow `easeOut` over a second** (not a spring) is what makes the scale-down read as a camera settling rather than as a UI element springing — and it must be paired with `.clipped()`, since the oversized start otherwise bleeds past the frame.
+
+**Ambient nudge loop — hint, then get out of the way.** For a primary CTA that should occasionally draw the eye without pulsing forever, use a `.task` loop with **asymmetric sleeps** and a delay before the first beat so it never fights the entrance:
+
+```swift
+.task {
+    try? await Task.sleep(for: .seconds(1.6))          // let the entrance finish first
+    while !Task.isCancelled {
+        withAnimation(.easeInOut(duration: 0.55)) { nudge = true }
+        try? await Task.sleep(for: .seconds(0.55))
+        withAnimation(.easeInOut(duration: 0.55)) { nudge = false }
+        try? await Task.sleep(for: .seconds(1.8))      // long rest — the hint is occasional
+    }
+}
+// on the chevron: .offset(x: nudge ? 3 : 0)
+```
+
+A 3pt travel is enough; the long rest between beats is what separates "a hint" from "a distracting throb." Prefer this over `.repeatForever(autoreverses:)`, which can't hold a rest and keeps running after the view is gone.
 
 ---
 
@@ -632,6 +764,35 @@ GeometryReader { geo in
 **`SeededRNG` for deterministic Canvas particles.** `CGFloat.random()` inside a `Canvas` render closure (or any `@ViewBuilder`) produces different values every frame, making particles flicker and teleport. Use a simple seeded xorshift RNG (`struct SeededRNG { var state: UInt64; mutating func unit() -> CGFloat }`) instead. The seed stays constant frame-to-frame so positions are stable; change the seed on *events* (new lightning strike, new smash impact) to regenerate the pattern. Pre-compute static particle arrays via a plain function for non-Canvas `ForEach` bodies — never call `.random()` inside a `@ViewBuilder`.
 
 **Stable `ForEach` identity.** Prefer `ForEach(Array(items.enumerated()), id: \.element.id)` over `ForEach(items.indices, id: \.self)` — index-based identity causes SwiftUI to tear down and rebuild views when the array reorders, breaking in-flight animations and wasting view identity.
+
+**Latch a gesture's origin in a `dragAnchor`, never accumulate into the driven value.** *(headline)* Writing `value = value - translation` inside `onChanged` feeds the gesture its own output: `translation` is measured from the touch-down point, so re-subtracting it from an already-moved value makes the element accelerate away from the finger. Latch the position at gesture start, hold it for the gesture's duration, clear it in `onEnded`:
+
+```swift
+@State private var dragAnchor: Double?          // nil between gestures
+// onChanged:
+let anchor = dragAnchor ?? position
+if dragAnchor == nil { dragAnchor = anchor }
+position = anchor - Double(v.translation.width / pageWidth)
+// onEnded: dragAnchor = nil   ← before the withAnimation, not after
+```
+
+Every independent driver of the same value needs its own anchor. Use plain `@State` (not `@GestureState`) so a gesture cancelled by a phone call doesn't reset the anchor mid-flight and snap the element.
+
+**Scope a staggered animation with `.animation(_, value:)`, never an ambient `withAnimation`.** An unscoped `withAnimation` on an enclosing state change drives *every* animatable property of *every* child on one clock — so the stagger collapses into lockstep, **and** unrelated gestures on those children inherit the stagger's `.delay()` and visibly lag the finger. Attach `.animation(travel.delay(delayFor(i)), value: isPresented)` per item, keyed to the one flag that should govern that movement.
+
+**A staggered offset must be applied per item, not to the container.** One `.offset(y:)` on the `HStack`/`VStack` moves all children together by definition; only per-child offsets can carry different delays. The same goes for opacity and scale in an entrance cascade.
+
+**Mount-and-park, don't insert-and-remove, anything that animates *out*.** A view removed from the hierarchy has nothing left to slide — SwiftUI cross-fades the removal instead, so one half of a chrome layer slides while the other half fades and it reads as two unrelated animations. Keep it mounted and move it off-screen (`.offset(y: visible ? 0 : -110)`), then pair with **`.allowsHitTesting(visible)`**: a parked view is still in the hierarchy and will keep swallowing taps over whatever is now underneath it.
+
+**Ask `Color.clear` for a size, not a `.fill` image.** An `Image(...).aspectRatio(contentMode: .fill)` queried for its own size returns the size that *fills*, which is unbounded — so it can't be a layout anchor, and a placeholder swapped in for it won't match. Build the container off `Color.clear.aspectRatio(r, contentMode: .fit)` and put the image in an `.overlay`.
+
+**A wide child belongs in an `.overlay`, not as a `ZStack` peer.** An overlay never reports its size back to its parent. A row far wider than the screen sitting as a `ZStack` child pushes that width up through the stack and shoves its siblings off both edges — put it in `.overlay(alignment:)` over a `Color.clear` spacer sized to the height you want, with `.fixedSize()` on the row.
+
+**`.opacity(0)` does not cull a render pass.** A fully transparent view still runs its blur, shadow, `Canvas` and material passes. To actually drop the cost, branch with an `if` and substitute a placeholder that preserves the layout (`Color.clear.aspectRatio(...)`, or the real view `.hidden()` when you need its exact intrinsic size).
+
+**Prefer `.task` to `Timer.scheduledTimer` for simulated progress.** A `.task` is cancelled automatically when the view goes away; a `Timer` keeps firing into a dead view and retains its target unless *every* exit path reaches `timer.invalidate()`. If a `Timer` is unavoidable, invalidate it at the terminal state **and** in `onDisappear`.
+
+**Token an `asyncAfter` dismissal so a stale one can't kill a fresh overlay.** The delayed closure from a previous showing has no idea a newer one replaced it. Stamp each showing with a `UUID` and compare before dismissing — see **Multi-Screen Flows → Auto-dismissing toast**.
 
 **ZStack frame trap — always apply both rules together:**
 When a ZStack has a fixed `.frame(height:)` AND contains a `LazyVGrid`, `List`, or any tall component:
@@ -708,6 +869,9 @@ The archetype drives physics, haptics, and container defaults. Pick the closest 
 | **Loading Indicator** | "loading", "spinner", "progress", "scanning" | inline | `.linear(duration:)` | none |
 | **3D Object Showcase** | "3D", "SceneKit", "spin the cover", "album", "boxed product" | embedded or full-screen | SceneKit rig, `SCNTransaction.disableActions` for driven properties (never spring) | selectionChanged per settle / none if passive |
 | **Card Pack Reveal** | "pack", "tear open", "card flip", "reveal", "unbox", "foil" | full-screen | `.easeInOut` tear + `.spring(0.6/0.7)` flip + `TimelineView` clock for Canvas effects | heavy on tear, medium on flip, success on rare |
+| **Fractional Pager** | "photo viewer", "gallery", "lightbox", "swipe through", "filmstrip", "immersive", "thumbnail strip" | full-screen | page `.spring(0.42/0.72)` + chrome `.spring(duration: 0.6, bounce: 0.08)`; unanimated during drag | `.selection` on the derived index · `.impact(.medium)` on the chrome toggle |
+| **Multi-Screen Flow** | "app flow", "onboarding to checkout", "full app", "5 screens", "ordering flow" | `NavigationStack(path:)` + route enum | one named spring token set reused per screen | light on taps · tick on steppers/chips · medium on commit · success once per flow |
+| **Route Tracking** | "track my order", "delivery", "courier on a map", "ETA", "live location" | full-screen map + docked sheet | `.spring(0.55/0.82)` staged progress, `repeatForever` pulse (never a spring) | tick per stage · success on arrival |
 
 Print the resolved archetype on the `🎯  Archetype:` line. If the user's prompt overrides any default in this table, use their value and note the override in parentheses.
 
@@ -783,6 +947,8 @@ Simpler than the sliding-indicator recipe when the bar floats over rich content 
 ---
 
 ## Carousels & Paging
+
+The patterns here track selection as an `Int` index plus a separate `dragOffset`. That is the right shape when the **drag gesture is the only driver**. If a second control has to move the same pager — a thumbnail strip, a scrubber, a tap target elsewhere on screen — skip ahead to **Fractional-Progress Pagers** and make the stored position a `Double` instead.
 
 **Velocity-aware paging — threshold on `predictedEndTranslation`, not raw translation.** A slow short drag shouldn't page; a fast flick should — even if the finger barely moved. The predicted end is velocity-aware:
 
@@ -905,6 +1071,320 @@ Text(current.title)
 ```
 
 - **The `.id()` must change, not just the string** — `.contentTransition` fires on identity change of the underlying view, so keying it to a stable string that happens not to change between two items (e.g. two movies that coincidentally share a genre chip) silently skips the cross-fade. Key to the item's own `id`, or to `text + current.id` for a per-field key (e.g. reusable "chip" subviews showing different fields of the same item).
+
+---
+
+## Fractional-Progress Pagers (one `Double` drives the whole screen)
+
+Everything above tracks selection as an `Int` index plus a separate `dragOffset`, and blends the two per transform. That works while the *gesture* is the only driver. The moment a **second control drives the same pager** — a thumbnail strip, a scrubber, a filmstrip — an index-plus-offset pair starts to disagree with itself mid-flight, and each driver needs its own animation that can fall out of step with the others.
+
+The fix is to make the **state itself fractional**. One `@State private var pageProgress: Double` is the only stored position on the screen; the card offset, the caption, every thumbnail's size, lift and outline are **pure functions** of it. Nothing owns an animation — they all just follow the number.
+
+```swift
+@State private var pageProgress: Double      // 3.0 at rest on page 3; 3.4 mid-swipe
+@State private var dragAnchor: Double?       // position when THIS gesture began
+
+private var selection: Int { min(max(Int(pageProgress.rounded()), 0), max(total - 1, 0)) }
+
+GeometryReader { proxy in
+    let width = proxy.size.width
+    HStack(spacing: 0) {
+        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+            let distance = Double(index) - pageProgress       // signed, fractional
+            PageView(item: item,
+                     isNearby: abs(distance) < 1.5,
+                     captionShift: CGFloat(-distance) * width,
+                     captionFocus: CGFloat(max(0, 1 - abs(distance))))
+                .frame(width: width, height: proxy.size.height)
+        }
+    }
+    .offset(x: -CGFloat(pageProgress) * width)
+    .contentShape(Rectangle())
+    .gesture(cardDrag(width: width))
+}
+```
+
+- **Hand-roll the pager — don't use a paging `ScrollView`.** A paging scroll view rounds *every* scroll to a whole page, **including programmatic ones**, so anything driving it from outside could only ever make it jump image to image. Owning the offset outright is exactly what lets one continuous value move everything at once.
+- **`dragAnchor` — measure each gesture against a fixed origin.** Assigning `pageProgress` from `pageProgress - translation` accumulates the gesture's own output and the card accelerates away from the finger. Latch the position at gesture start, hold it for the gesture's duration, clear it in `onEnded`. Every driver (card drag, strip scrub) needs its own anchor.
+- **Assign unanimated during the drag, spring only on release** — that's what makes the card track the finger exactly instead of lagging a spring behind it.
+- **Clamp a flick to ±1 page off the *start* page**, not off the prediction: a hard throw should page once, as a paging scroll view does, not skip three images.
+
+```swift
+private func cardDrag(width: CGFloat) -> some Gesture {
+    DragGesture(minimumDistance: 4)
+        .onChanged { v in
+            guard width > 0 else { return }
+            let anchor = dragAnchor ?? pageProgress
+            if dragAnchor == nil { dragAnchor = anchor }
+            pageProgress = resisted(anchor - Double(v.translation.width / width))   // no animation
+        }
+        .onEnded { v in
+            guard width > 0 else { return }
+            let anchor = dragAnchor ?? pageProgress
+            dragAnchor = nil
+            let predicted = anchor - Double(v.predictedEndTranslation.width / width)
+            let start = anchor.rounded()
+            let target = min(max(predicted.rounded(), start - 1), start + 1)   // one page per swipe
+            withAnimation(pageMotion) { pageProgress = min(max(target, 0), Double(total - 1)) }
+        }
+}
+
+/// Edge resistance in PAGE space, not points — the same give a scroll view has at its limits.
+private func resisted(_ page: Double) -> Double {
+    let last = Double(max(total - 1, 0))
+    if page < 0    { return page * 0.3 }
+    if page > last { return last + (page - last) * 0.3 }
+    return page
+}
+```
+
+**Haptics key off the derived index, never off a gesture.** `.sensoryFeedback(.selection, trigger: selection)` on the container fires once per page landed regardless of *which* driver moved it — card swipe, strip fling and thumbnail tap all report identically, including one tick per page passed mid-fling. Firing inside `onEnded` instead means every new driver has to remember to buzz, and a fling that crosses four pages buzzes once.
+
+```swift
+.sensoryFeedback(.selection, trigger: selection)                     // a step through a list
+.sensoryFeedback(.impact(weight: .medium), trigger: isChromeVisible) // a commit, not a step
+```
+
+### Counter-translate content that belongs to the screen, not to the page
+
+A caption under a photo pager belongs to the *screen*: it should hold the centre while the images travel past, and change by resolving out of a blur rather than sliding away with its page. Render it inside its own page (so it's correctly identified and laid out) and **exactly undo the pager's translation**:
+
+```swift
+caption
+    .blur(radius: captionBlur * (1 - captionFocus))   // 11pt at a full page away
+    .opacity(Double(captionFocus))
+    .offset(x: captionShift)                          // = -distance * width
+```
+
+Both blur and opacity are pure functions of `captionFocus`, so there is no animation here to fall out of step with the artwork — the caption resolves on precisely the clock the image settles on, **including mid-drag and through the release spring's overshoot**. An `.animation(_, value: selection)` on the caption would instead start a fresh spring at the moment the index flipped and arrive at a different time than the image.
+
+- Pick a blur large enough that two captions overlapping mid-swipe read as **one indistinct smear** rather than two legible titles printed over each other (~11pt at 28pt type).
+- **`.lineLimit(1)` is mandatory** on a caption that blurs past: a long title that wraps changes the caption's height mid-swipe and steps everything below it up and down.
+
+### Blur culling — a blur is an offscreen render pass
+
+Twelve live blurs is what costs a pager its frame rate on a device, and eleven of them are for pages more than a screen width away. Gate on distance, and **swap in a placeholder that keeps the same aspect ratio** so the layout is byte-identical either way and nothing shifts when a page swaps in:
+
+```swift
+Group {
+    if isNearby { artwork.mask { edgeFade } }                     // abs(distance) < 1.5
+    else        { Color.clear.aspectRatio(0.8, contentMode: .fit) }
+}
+// same for the caption — .hidden() keeps the layout, drops the blur
+Group {
+    if captionFocus > 0 { caption.blur(radius: …).opacity(…).offset(x: captionShift) }
+    else                { caption.hidden() }
+}
+```
+
+- **`.opacity(0)` is not culling** — a fully transparent blurred view still runs its render pass. The `if` is what removes the cost.
+- **Aspect-ratio container trap:** build the artwork off `Color.clear.aspectRatio(r, contentMode: .fit).overlay(Image(…).resizable().aspectRatio(contentMode: .fill))`, not off the image directly. A `.fill` image asked for its own size returns the size that *fills*, which is unbounded — the placeholder and the real page then disagree on height.
+
+### Feathered edges — mask, don't paint
+
+To make artwork **dissolve into** its background instead of stopping against it, with no border, shadow or scrim drawn around it, mask the card with a blurred inset copy of its own shape:
+
+```swift
+private var edgeFade: some View {
+    cardShape
+        .fill(.white)
+        .padding(feather)              // 12 — where the dissolve is half done
+        .blur(radius: featherSoftness) // 4.5 — deliberately well under `feather`
+        .mask {                        // optional: tilt the otherwise even fade
+            LinearGradient(stops: [.init(color: .white, location: 0),
+                                   .init(color: .white, location: 0.90),
+                                   .init(color: .white.opacity(0.7), location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+        }
+}
+artwork.mask { edgeFade }
+```
+
+- **`featherSoftness` must be well under `feather`** — roughly `feather / 2.5`. A gaussian needs ~2.5× its radius to die out completely; any alpha still left when the ramp reaches the card's bounds gets **cut off square**, and that is exactly the faint hard line you see along the edge of a dark artwork. At this ratio the ramp is already at zero a little inside the boundary, so there's nothing left to cut.
+- **Blur a rounded-rectangle shape, not per-side gradients** — that's what feathers the *corners* on the same curve as the straight edges. Four edge gradients leave the corners hard.
+- Masking rather than painting the background colour over the edge keeps it honest on a textured or gradient backdrop: the background shows through **as itself**.
+
+### Immersive / chrome-hidden state
+
+A photo viewer's two states aren't "chrome visible vs. hidden" — the chrome flag should **drive layout**, because hiding it frees the margins the buttons and the strip were holding and the artwork takes them. That growth *is* the state.
+
+```swift
+private var sideInset:   CGFloat { chromeVisible ? 36 : 8 }    // artwork runs nearly full width
+private var bottomInset: CGFloat { chromeVisible ? 108 : 26 }  // no strip to clear
+// .padding(.top, 64) is constant in BOTH states — the artwork grows DOWNWARD from a fixed
+// line rather than drifting up under the page counter.
+```
+
+- **Two springs for two jobs.** Page turn: `.spring(response: 0.42, dampingFraction: 0.72)` — a hair of overshoot is what gives a swipe weight; fully damped, a page glides to a stop and reads as *sluggish* rather than smooth. Chrome toggle: `.spring(duration: 0.6, bounce: 0.08)` — slower and flatter, because the artwork is growing across most of the screen and at the page spring's speed that reads as a pop. Pace it to the thumbnail strip's own travel so the two settle together.
+- **Mount the chrome in both states and park it off-screen** (`.offset(y: visible ? 0 : -110)`), never insert it conditionally. A view removed from the hierarchy has nothing left to slide, and one half of the chrome sliding while the other half fades reads as two unrelated animations rather than one screen changing state. Pair with `.allowsHitTesting(visible)` — parked-but-mounted still swallows taps.
+- **Two mutually exclusive elements need an asymmetric delay**, or they're briefly on screen together. A page counter that replaces the chrome waits for the chrome to be most of the way out, and leaves at once on the way back: `.easeOut(duration: 0.22).delay(chromeVisible ? 0 : 0.2)`.
+- **Capped vs. uncapped `Spacer`s** shape where the slack goes: `Spacer(minLength: 0).frame(maxHeight: 24)` above the artwork and `Spacer(minLength: 24)` below it settles the artwork just under the chrome while the caption floats down toward the strip.
+- `.statusBar(hidden: !chromeVisible)` — the real status bar is part of the chrome.
+
+---
+
+## Focus-Scaled Thumbnail Strips (non-uniform, drag-invertible)
+
+The companion control to a fractional pager: a filmstrip where the focused thumbnail is large, its two neighbours a step down, and the rest of the row small — and which is **both a readout and a driver** of the same `pageProgress`. Because tiles change *width* with focus, the row's geometry is non-uniform, which breaks every shortcut a fixed-pitch strip allows.
+
+Every visual property is a function of a **fractional** page, evaluated `at:` an arbitrary page rather than only the current one — the drag needs to ask where the strip *would* sit at some other page in order to invert the mapping:
+
+```swift
+private let restSize: CGFloat = 34, mediumSize: CGFloat = 40, activeSize: CGFloat = 70
+private let matInset: CGFloat = 3, spacing: CGFloat = 10
+
+private func focus(_ i: Int, at page: Double) -> CGFloat {
+    CGFloat(max(0, 1 - abs(Double(i) - page)))          // 1 centred → 0 one page away
+}
+
+/// Three tiers, piecewise linear — still CONTINUOUS in a fractional page.
+private func side(_ i: Int, at page: Double) -> CGFloat {
+    let d = abs(Double(i) - page)
+    if d >= 2 { return restSize }
+    if d >= 1 { return mediumSize + (restSize - mediumSize) * CGFloat(d - 1) }
+    return activeSize + (mediumSize - activeSize) * CGFloat(d)
+}
+
+private func width(_ i: Int, at page: Double) -> CGFloat {
+    side(i, at: page) + matInset * 2 * focus(i, at: page)   // mat joins the slot as it focuses
+}
+
+private func centre(_ i: Int, at page: Double) -> CGFloat {
+    var x: CGFloat = 0
+    for j in 0..<i { x += width(j, at: page) + spacing }
+    return x + width(i, at: page) / 2
+}
+```
+
+- **Piecewise, not one ramp.** A single linear falloff makes the neighbours either side of the focused tile the same size as the rest of the row; three tiers give them a distinct middle size. The tiers are what you see **at rest** — not states the strip snaps between mid-drag, because the function stays continuous at every breakpoint.
+- **Lift must step *down* going outward.** Bring the focused tile all the way down to the baseline, ride its two neighbours highest, and sit the rest of the row between the two. Lifting the *outer* tiles highest is what makes the row read as centred rather than as standing on a shelf — the small tiles then float furthest from the line they share. Use the same breakpoints as `side` so a half-finished swipe interpolates the lift as the tile focuses.
+
+### Inverting a non-uniform strip — bisect, don't divide
+
+There is **no constant points-per-page** to divide a drag translation by, because the tiles under the finger are changing width as focus moves. But `focusedCentre(at:)` is monotonic, which is all a bisection needs — and 24 iterations over a dozen items is a few hundred ops a frame:
+
+```swift
+/// Centre of the fractional position under the viewer, so a half-finished swipe parks the
+/// strip half way between two thumbnails.
+private func focusedCentre(at page: Double) -> CGFloat {
+    guard !items.isEmpty else { return 0 }
+    let clamped = min(max(page, 0), Double(items.count - 1))
+    let lower = Int(clamped.rounded(.down))
+    let upper = min(lower + 1, items.count - 1)
+    let t = CGFloat(clamped - Double(lower))
+    return centre(lower, at: page) + (centre(upper, at: page) - centre(lower, at: page)) * t
+}
+
+/// The inverse: which page puts `target` under the viewer.
+private func page(forCentre target: CGFloat) -> Double {
+    guard items.count > 1 else { return 0 }
+    var low = 0.0, high = Double(items.count - 1)
+    if target <= focusedCentre(at: low)  { return low }
+    if target >= focusedCentre(at: high) { return high }
+    for _ in 0..<24 {
+        let mid = (low + high) / 2
+        if focusedCentre(at: mid) < target { low = mid } else { high = mid }
+    }
+    return (low + high) / 2
+}
+
+private var scrub: some Gesture {
+    DragGesture(minimumDistance: 2)
+        .onChanged { v in
+            let anchor = dragAnchor ?? focusedCentre(at: progress)
+            if dragAnchor == nil { dragAnchor = anchor }
+            onScrub(page(forCentre: anchor - v.translation.width))       // unanimated
+        }
+        .onEnded { v in
+            let anchor = dragAnchor ?? focusedCentre(at: progress)
+            dragAnchor = nil
+            let predicted = page(forCentre: anchor - v.predictedEndTranslation.width)
+            onSettle(min(max(Int(predicted.rounded()), 0), items.count - 1))   // carry the fling
+        }
+}
+```
+
+**Sign convention:** dragging the strip left must pull *later* items toward the viewer — the same direction the content itself moves — so the finger stays glued to the thumbnail it grabbed. That's `anchor - translation.width`, not `+`.
+
+### Layout and hit-testing traps
+
+```swift
+Color.clear
+    .frame(maxWidth: .infinity)
+    .frame(height: activeSize + matInset * 2)
+    .overlay(alignment: .leading) {
+        HStack(spacing: spacing) { /* tiles */ }
+            .fixedSize()
+            .offset(x: stripWidth / 2 - focusedCentre(at: progress))
+    }
+    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { stripWidth = $0 }
+    .contentShape(Rectangle())     // on the COMPOSED view, not the HStack
+    .gesture(scrub)
+    .allowsHitTesting(isPresented)
+```
+
+- **The row hangs in an `.overlay` over a `Color.clear` spacer, never as a ZStack peer.** An overlay never reports its size back to its parent; a plain `HStack` far wider than the screen pushes that width up through the ZStack and shoves the chrome buttons off either edge.
+- **`.contentShape(Rectangle())` on the composed view** so a drag that starts on a thumbnail hanging *outside* the row's own bounds is still picked up.
+- `.allowsHitTesting(isPresented)` — a strip parked off-screen is still mounted and would keep swallowing taps and drags along the bottom of the immersive view.
+- **`.onGeometryChange` is iOS 18+.** It's the right tool here — it reports a value without the extra layout pass a nested `GeometryReader` costs, and without a `PreferenceKey`'s stale-first-frame problem. Below iOS 18, wrap the `Color.clear` spacer in a `GeometryReader` and assign `stripWidth` from its `proxy.size.width`.
+
+### Centre-out ring stagger for enter/exit
+
+```swift
+private static let exitDrop: CGFloat = 136
+private static let travel = Animation.spring(duration: 0.62, bounce: 0.22)
+private static let ringDelay: Double = 0.05
+
+private func exitDelay(_ i: Int) -> Double {
+    Double(abs(i - Int(progress.rounded()))) * Self.ringDelay
+}
+
+tile
+    .offset(y: isPresented ? 0 : Self.exitDrop)                     // PER ITEM
+    .animation(Self.travel.delay(exitDelay(index)), value: isPresented)  // SCOPED to isPresented
+```
+
+Four rules, each a real trap:
+
+- **The offset goes on each item, not on the row.** One offset on the `HStack` moves all twelve in lockstep — per-item offsets are the only way they can be staggered at all.
+- **Scope the animation to `isPresented` with `.animation(_, value:)`.** Without the `value:` scope, the ambient animation from the chrome toggle's `withAnimation` drives all twelve at once, *and* scrubbing the strip inherits the stagger delays — the strip lags the finger by up to half a second.
+- **Centre first, then outward, in *both* directions.** `abs(index - centre)` means the two neighbours of the focused tile move together as a pair, then the next two, and so on: leaving, the centre drops and the row empties outward; returning, the centre lands first and the others catch up. Pace `ringDelay` so a ring starts while the ring inside it is still moving, or the row reads as twelve separate drops instead of one ripple.
+- **Make `exitDrop` just past what it takes to clear the screen.** A thumbnail is only visible for the part of its travel that happens above the screen edge, so a longer drop doesn't read as a longer animation — it just spends the settle out of sight. Keep it close to the minimum and most of the spring stays on screen.
+- Express the spring as `.spring(duration: 0.62, bounce: 0.22)` rather than response/damping when the point is **how long a thing takes to settle** — it says so outright, and the bounce number is what you tune against `exitDrop`'s margin.
+
+### Concentric radii and in-tile parallax
+
+```swift
+private func thumbnail(_ item: Item, side: CGFloat, focus: CGFloat, drift: CGFloat) -> some View {
+    let inset = matInset * focus
+    let photoRadius = side * 0.21                                    // radius as a FRACTION of side
+    let mat = RoundedRectangle(cornerRadius: photoRadius + inset, style: .continuous)
+
+    return Color.clear                                               // the TILE, not the photo
+        .frame(width: side, height: side)
+        .overlay(
+            Image(item.imageName).resizable().aspectRatio(contentMode: .fill)
+                .frame(width: side + parallaxRange * 2, height: side + parallaxRange * 2)  // overscan
+                .offset(x: drift)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: photoRadius, style: .continuous))
+        .padding(inset)
+        .background(mat.fill(raisedSurface).opacity(focus)
+                       .shadow(color: .black.opacity(0.16 * focus), radius: 3, y: 2))
+        .overlay(mat.strokeBorder(inkColor, lineWidth: focus))       // lineWidth animates to 0
+}
+
+/// Signed — so photos lean outward on BOTH sides and swing square as their tile arrives.
+/// Cannot be derived from `focus`, which is unsigned.
+private func drift(_ i: Int, at page: Double) -> CGFloat {
+    CGFloat(min(max(Double(i) - page, -1), 1)) * parallaxRange       // 7
+}
+```
+
+- **Corner radius must be a *fraction* of the tile's edge**, and the mat's radius that plus the mat's own width. The two curves then stay exactly concentric and the outline is always the photo's shape scaled up. A fixed radius rounds off into a circle as the tile shrinks.
+- **The tile is an empty square the photo sits inside**, not the photo itself — that separation is what lets the photo drift while the tile holds its place in the row.
+- **Overscan the photo by the drift on each side** or sliding pulls a bare edge into view.
+- `lineWidth: focus` and `.opacity(focus)` let the mat and outline appear only around the focused tile with no extra state — they animate for free with the strip.
 
 ---
 
@@ -1355,12 +1835,218 @@ A flat grid of dots (QR code, avatar wall, calendar) that peels off the plane, g
 
 ---
 
+## Multi-Screen Flows (tokens, routes, staged commits)
+
+Everything above generates one screen. When a prompt asks for a **flow** — onboarding → browse → detail → checkout → tracking — the animation work doesn't change, but three things have to be established *once* up front or the screens drift apart visually within two files.
+
+### 1. A token file per flow — including the springs
+
+Colour, spacing, radius **and motion** are all tokens. Naming the springs is what keeps the fifth screen's chip selection feeling like the first screen's:
+
+```swift
+enum FlowSpring {
+    static let snap    = Animation.spring(response: 0.35, dampingFraction: 0.72)  // selection commit
+    static let bouncy  = Animation.spring(response: 0.42, dampingFraction: 0.62)  // chip / size pick
+    static let gentle  = Animation.spring(response: 0.55, dampingFraction: 0.82)  // sheet, screen change
+    static let quick   = Animation.spring(response: 0.28, dampingFraction: 0.78)  // stepper ±1
+    static let stagger = Animation.spring(response: 0.5,  dampingFraction: 0.78)  // entrance cascade
+    static let press   = Animation.spring(response: 0.32, dampingFraction: 0.55)  // press release
+    static let pop     = Animation.spring(response: 0.45, dampingFraction: 0.58)  // toast / badge
+}
+enum FlowSpacing { static let xs: CGFloat = 4, sm: CGFloat = 8, md: CGFloat = 16, lg: CGFloat = 24, xl: CGFloat = 32 }
+enum FlowRadius  { static let sm: CGFloat = 12, md: CGFloat = 20, lg: CGFloat = 28 }
+```
+
+Pair it with **one shared press modifier** (`.flowPressable(scale:)`) applied to every tappable surface in the flow, so scale-on-press and its haptic are defined once rather than re-derived per screen. Give it a `scale` parameter — `0.93–0.94` for chips and capsule CTAs, `0.96–0.97` for wide cards and rows.
+
+### 2. `NavigationStack(path:)` + a `Hashable` route enum
+
+```swift
+private enum Route: Hashable {
+    case detail(Item)
+    case order(Item, Size, Int)     // carry the whole selection forward in the route
+    case tracking
+}
+
+NavigationStack(path: $path) {
+    HomeView(onSelect: { path.append(Route.detail($0)) })
+        .navigationDestination(for: Route.self) { route in
+            switch route {
+            case .detail(let item):
+                DetailView(item: item, onBack: { path.removeLast() },
+                           onBuy: { size, qty in path.append(Route.order(item, size, qty)) })
+                    .navigationBarBackButtonHidden()
+            case .tracking:
+                TrackingView(onClose: { path = NavigationPath() })   // unwind to root
+                    .navigationBarBackButtonHidden()
+            }
+        }
+}
+```
+
+- **`.navigationBarBackButtonHidden()` on every destination.** These screens each draw their own circular glass/white back button over a full-bleed hero — the system chevron sits on top of it.
+- **Route payloads carry the selection**, so no screen needs a shared observable to know what's being bought. `Item` must be `Hashable`; a `let id = UUID()` on the struct gives it that for free.
+- **`path = NavigationPath()` is the "done, go home" gesture** — one assignment unwinds the whole flow, and it animates.
+
+### 3. Onboarding hand-off — two layers moving opposite ways
+
+An onboarding cover isn't a route; it's a `ZStack` sibling that removes itself. Sell the hand-off by moving the cover *out* while the app under it moves *in*:
+
+```swift
+ZStack {
+    NavigationStack(path: $path) { … }
+        .opacity(showOnboarding ? 0 : 1)
+        .scaleEffect(showOnboarding ? 1.04 : 1.0)      // settles DOWN into place
+
+    if showOnboarding {
+        OnboardingView { withAnimation(FlowSpring.gentle) { showOnboarding = false } }
+            .transition(.asymmetric(insertion: .identity,
+                                    removal: .opacity.combined(with: .scale(scale: 1.08))))
+            .zIndex(1)                                  // or the removal draws under the app
+    }
+}
+```
+
+`insertion: .identity` because the cover is present at launch and must not animate in. The two scales pull in opposite directions — cover grows away, app shrinks in — which reads as depth rather than a cross-fade.
+
+### 4. Staged commit on a primary CTA
+
+A "Place Order" button that navigates instantly feels like a broken link. Stage it: **acknowledge → confirm → leave**, with a different haptic and a different label at each stage.
+
+```swift
+@State private var placingOrder = false     // spinner showing
+@State private var orderPlaced  = false     // checkmark showing
+
+Button {
+    guard !placingOrder else { return }
+    placingOrder = true
+    Haptics.commit()                                            // medium — "got it"
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        Haptics.success()                                       // notification success — "done"
+        withAnimation(FlowSpring.bouncy) { orderPlaced = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { onPlaceOrder() }
+    }
+} label: {
+    HStack(spacing: 10) {
+        if placingOrder && !orderPlaced {
+            ProgressView().progressViewStyle(.circular).tint(.white)
+        } else if orderPlaced {
+            Image(systemName: "checkmark.circle.fill")
+                .symbolEffect(.bounce, value: orderPlaced)
+                .transition(.scale.combined(with: .opacity))
+        }
+        Text(orderPlaced ? "Order Placed!" : "Place Order · $\(total, specifier: "%.2f")")
+            .contentTransition(.numericText())
+    }
+    .frame(maxWidth: .infinity).frame(height: 56)
+    .background(orderPlaced ? successColor : accentColor, in: Capsule())
+    .scaleEffect(orderPlaced ? 1.03 : 1.0)
+}
+.disabled(placingOrder)
+.animation(FlowSpring.bouncy, value: orderPlaced)
+```
+
+- **Guard *and* `.disabled`** — the guard stops a double-tap inside the same frame, `.disabled` stops the second tap arriving at all.
+- **The colour change to green is what confirms**, more than the checkmark; the `1.03` scale is the button "accepting" the press.
+- **Let the success haptic land before the screen changes.** `Haptics.success()` then `asyncAfter(0.2) { navigate() }` — a push transition starting on the same frame as the haptic swallows it, and the user feels nothing. Use ~0.18–0.2s anywhere a haptic marks a *departure*.
+
+### 5. Auto-dismissing toast — token the dismissal
+
+A delayed dismissal captured from the *previous* toast will kill the *current* one early. Stamp each showing with a token and only dismiss if it still matches:
+
+```swift
+@State private var toastItem: String?
+@State private var toastToken = UUID()
+
+private func showToast(_ name: String) {
+    let token = UUID()
+    toastToken = token
+    toastItem = name
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+        if toastToken == token { toastItem = nil }   // a newer toast owns the screen now
+    }
+}
+
+.overlay(alignment: .top) {
+    Group { if let name = toastItem { toastCapsule(name).transition(.widthPop) } }
+        .animation(FlowSpring.pop, value: toastItem)   // key on the OPTIONAL's identity
+}
+```
+
+Same token trick applies to any transient overlay driven by `asyncAfter` — undo snackbars, "copied!" chips, transient badge flashes.
+
+### 6. Docked bottom bar over a `ScrollView`
+
+Every screen with a price/CTA bar uses the same shape, and the padding rule matters:
+
+```swift
+ScrollView { VStack { … }.padding(.bottom, 140) }      // ≥ bar height + 24, or the last row hides
+    .overlay(alignment: .bottom) { buyBar }
+
+// in buyBar:
+.padding(.horizontal, FlowSpacing.lg).padding(.top, FlowSpacing.md).padding(.bottom, FlowSpacing.lg)
+.background(
+    surfaceColor
+        .clipShape(RoundedRectangle(cornerRadius: FlowRadius.lg, style: .continuous))
+        .ignoresSafeArea(edges: .bottom)                // on the BACKGROUND only
+)
+```
+
+`.ignoresSafeArea` goes on the background, never on the bar: the surface bleeds into the home-indicator area while the content keeps its padding above it. Putting it on the bar pushes the label into the indicator.
+
+---
+
+## Route / Delivery Tracking (MapKit)
+
+A live "your order is on the way" screen: a map that reads as an **app surface**, not as Maps, with a courier lerping along a dashed route under a docked status sheet.
+
+```swift
+@State private var cameraPosition: MapCameraPosition   // seeded in init from a region between the endpoints
+@State private var progress: CGFloat = 0.18
+
+private var courierCoordinate: CLLocationCoordinate2D {
+    CLLocationCoordinate2D(
+        latitude:  store.latitude  + (home.latitude  - store.latitude)  * Double(progress),
+        longitude: store.longitude + (home.longitude - store.longitude) * Double(progress))
+}
+
+Map(position: $cameraPosition) {
+    Marker("Coffee Bar", coordinate: store).tint(accentColor)
+    Marker("Home", coordinate: home).tint(successColor)
+
+    Annotation("", coordinate: courierCoordinate) {
+        ZStack {
+            Circle().fill(amber.opacity(0.25)).frame(width: pulse ? 46 : 30, height: pulse ? 46 : 30)
+            Circle().fill(amber).frame(width: 30, height: 30)
+            Image(systemName: "bicycle").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
+        }
+    }
+
+    MapPolyline(coordinates: [store, home])
+        .stroke(accentColor, style: StrokeStyle(lineWidth: 4, lineCap: .round, dash: [1, 10]))
+}
+.mapStyle(.standard(pointsOfInterest: .excludingAll))
+.mapControls { }
+```
+
+- **Strip the native chrome or it reads as Maps, not as your app.** `.mapControls { }` (empty builder) removes the compass/scale/locate cluster, and `.standard(pointsOfInterest: .excludingAll)` removes every unrelated pin so the only things on the map are the three that belong to the order.
+- **A dotted route is `dash: [1, 10]` with `lineCap: .round`** — a 1pt dash with a round cap draws a *dot*, and 10pt of gap is what makes it read as a route hint rather than a drawn road. A plain solid polyline looks like a highway overlay.
+- **Lerp the courier between endpoints from one `progress` float** — the annotation follows for free, and `progress` is also what the progress bar, the ETA and the status enum read. Same single-source-of-truth rule as the fractional pager.
+- **`MapCameraPosition` must be seeded in `init`**, not `onAppear` — a `@State` default of `.automatic` frames the world for one frame before snapping, which is visible. Compute the midpoint region and `_cameraPosition = State(initialValue: .region(region))`.
+- **The pulse ring animates its `frame`, not a `scaleEffect`** on a shared circle — an annotation's content is re-laid-out by MapKit as the camera moves, and a scale transform on it fights that. `withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) { pulse = true }` in `onAppear`.
+- **ETA is derived, never stored:** `max(1, Int((1 - progress) * 18))` with `.contentTransition(.numericText())` — it can't disagree with the bar.
+- **Progress bar cap dot offsets by half its own width:** `.offset(x: geo.size.width * progress - 8)` for a 16pt dot, with a 3pt white ring so it reads as a handle over the filled track. (Same centring rule as **Ring Gauges**.)
+- **Status steps light up from a comparison, not a second state:** `let isDone = step.rawValue <= status.rawValue` over `DeliveryStatus.allCases`, with `.animation(FlowSpring.snap, value: status)` on the row.
+- **Prefer a `.task` loop to `Timer.scheduledTimer` for the simulation.** A `.task` is cancelled automatically when the view goes away; a `Timer` keeps firing into a dead view unless every exit path reaches `timer.invalidate()`. If a `Timer` is genuinely needed, invalidate it at the terminal state *and* in `onDisappear`.
+
+---
+
 ## Output (Create mode)
 
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.24.0
+⚙️  swiftui-microinteractions v1.25.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>

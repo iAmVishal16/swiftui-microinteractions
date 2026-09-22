@@ -152,7 +152,7 @@ a notification card you can rip apart by pulling both edges
 a capsule that morphs into a red circle toggle with rubber-band physics
 ```
 
-**Pin a version.** `main` always serves the newest rules; swap it for a release tag (e.g. `.../v1.24.0/SKILL.md`) when you want the install pinned to one version.
+**Pin a version.** `main` always serves the newest rules; swap it for a release tag (e.g. `.../v1.25.0/SKILL.md`) when you want the install pinned to one version.
 
 > **Why it works:** `SKILL.md` is the whole skill in one file — spring presets, haptic grammar, visual DNA, metaball recipes, code rules — and it already carries the `name` / `description` frontmatter Claude Code expects, so dropping it in place is the entire install.
 
