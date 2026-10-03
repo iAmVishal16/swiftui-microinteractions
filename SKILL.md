@@ -13,6 +13,7 @@ Generate a complete, compilable SwiftUI animation file in the legendary-Animo st
 - Building a Canvas loader that traces a shape outline with a comet trail (infinity, star, polygon…)
 - Morphing a flat grid of elements into a faux-3D spinning form (drum, globe, helix) and back
 - Building a card-reveal pack (swipe-to-tear, 3D card flip, staggered stat fills) or Canvas power-effect showcase
+- Building an onboarding spotlight tour / coach marks that walk the user across real controls (dim scrim, cutout, pointing tooltip)
 - Editing an existing SwiftUI animation file
 
 ## Mode Detection
@@ -707,6 +708,7 @@ The archetype drives physics, haptics, and container defaults. Pick the closest 
 | **Metal Shader** | "liquid chrome", "molten metal", "holographic", "plasma", "shader" | full-screen | `TimelineView` clock (never spring) | lightImpact on touch |
 | **Loading Indicator** | "loading", "spinner", "progress", "scanning" | inline | `.linear(duration:)` | none |
 | **3D Object Showcase** | "3D", "SceneKit", "spin the cover", "album", "boxed product" | embedded or full-screen | SceneKit rig, `SCNTransaction.disableActions` for driven properties (never spring) | selectionChanged per settle / none if passive |
+| **Coach-Mark Tour** | "tour", "coach mark", "spotlight", "walkthrough", "onboarding tooltip" | clear `fullScreenCover`, presented once | cutout glide `.spring(0.5/0.86)`, bubble `.opacity` cross-fade, `.easeInOut(0.25)` fade-out | none (selectionChanged on Next at most) |
 | **Card Pack Reveal** | "pack", "tear open", "card flip", "reveal", "unbox", "foil" | full-screen | `.easeInOut` tear + `.spring(0.6/0.7)` flip + `TimelineView` clock for Canvas effects | heavy on tear, medium on flip, success on rare |
 
 Print the resolved archetype on the `🎯  Archetype:` line. If the user's prompt overrides any default in this table, use their value and note the override in parentheses.
@@ -1355,12 +1357,28 @@ A flat grid of dots (QR code, avatar wall, calendar) that peels off the plane, g
 
 ---
 
+## Spotlight Coach-Mark Tour (one overlay, gliding cutout)
+
+A tour that dims the screen, punches out one real control, and points a tooltip at it with **Next** / **End tour** — stepping across controls owned by different views (tab bar, FAB, cards).
+
+- **One presentation for the whole tour; a step change is a layout change.** *(headline)* Presenting a coach mark per step makes every Next read as a screen dismissing — the scrim blinks and the bubble slides down and back up. Present once (clear-backed `fullScreenCover`, shown and removed inside a `Transaction` with `disablesAnimations = true`), then change only the target inside `withAnimation(.spring(response: 0.5, dampingFraction: 0.86))`: the cutout's frame animates, so it **glides** from control to control.
+- **Cross-fade the bubble, glide the cutout.** Re-identify the tooltip per step (`.id(message)` + `.transition(.opacity)`) so it fades out in place and in at its new spot while the cutout moves. Springing the bubble's position instead smears the text across the screen mid-flight.
+- **Leave by fading, never by dismissing.** End tour → `isVisible = false` → `.easeInOut(0.25)` opacity → *then* remove the cover without animation, *then* run any follow-up action. First appearance mirrors it: cover appears unanimated, the overlay fades its own opacity in.
+- **Global frames, collected above all chrome.** Anchors report `proxy.frame(in: .global)` through a `PreferenceKey` (the cover is its own window). Attach `onPreferenceChange` at the screen root: a tab bar or FAB outside the `ScrollView` never reaches a reader on the scroll content. Anchor the tappable control, not its full-width wrapper.
+- **Two `GeometryReader`s.** The inner one `.ignoresSafeArea()` so its space matches the global frames; it then reports zero insets, so read `safeAreaInsets` from an outer reader that keeps the safe area.
+- **Bubble on the roomier side, measured inside the safe area.** `spaceAbove = minY − safeTop`, `spaceBelow = height − safeBottom − maxY`, below if larger. Clamp x to a 16pt margin, then set the pointer from where the target's midX lands across the bubble (`<0.33` leading, `>0.67` trailing) so the arrow still hits the control when the bubble is pinned to an edge. Anchor the bubble to the edge facing the target inside a frame that stops `gap` short of it, so variable-height text never covers the cutout.
+- **Cutout fit.** Round controls (a "+", a centre tab-bar button) get a radius ≥ half their side; text targets get separate x/y insets (≈10 × 6pt) because their frame hugs the glyphs. A target that isn't laid out is skipped — never spotlight a zero rect — and Next advances past the step actually shown, not the stored index + 1.
+- **Inert scrim, live cutout.** Scrim taps do nothing (`contentShape` + empty tap) so a card can't be lost by accident. The cover can't pass touches through, so lay a near-transparent hit shape over the cutout that runs the control's real action *after* the fade, and resume at the next step when the user returns.
+- **End tour is the quiet action.** Bold, underlined, ~0.8 white, no chrome — next to a pill primary that needs no drop shadow on an 0.8 black scrim. Only run the tour while its host screen is frontmost (no sheet, pushed screen or paywall over it), or it anchors to stale frames.
+
+---
+
 ## Output (Create mode)
 
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.24.0
+⚙️  swiftui-microinteractions v1.25.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>
