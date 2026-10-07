@@ -14,6 +14,9 @@ Generate a complete, compilable SwiftUI animation file in the legendary-Animo st
 - Morphing a flat grid of elements into a faux-3D spinning form (drum, globe, helix) and back
 - Building a card-reveal pack (swipe-to-tear, 3D card flip, staggered stat fills) or Canvas power-effect showcase
 - Building an onboarding spotlight tour / coach marks that walk the user across real controls (dim scrim, cutout, pointing tooltip)
+- Driving a visual from live sound — a glow, waveform or orb that reacts to the *shape* of a voice, not only its volume
+- Building a multi-detent bottom sheet, or sheets that stack and push each other back
+- Adding resistance that **builds** through a sustained gesture (slide-to-pay, drag-to-commit, a sheet nearing a detent)
 - Editing an existing SwiftUI animation file
 
 ## Mode Detection
@@ -198,6 +201,15 @@ Apply the same gate (without rearm, since it only happens once) to the touch-dow
 
 **`TimelineView` haptics — trigger on a phase enum, never on the clock.** A `.animation`-schedule body re-runs ~60×/s, so `.sensoryFeedback(trigger:)` on a raw time value (or a test like `clock >= tLiftEnd`) fires on every frame after the boundary, not on the boundary. Reduce the clock to a small `Equatable` phase enum (`.flat / .lifting / .spinning / .settling`) and trigger on *that* — "the phase changed" happens exactly once per boundary. Derive the phase from the clock rather than from the tap's `Bool`: a tap tells you a morph *began*, only the clock tells you it finished, and the arrival is usually the beat most worth marking. Return `nil` from the closure for phases that shouldn't speak.
 
+### Core Haptics — sustained gestures and live modulation
+
+`UIFeedbackGenerator` can only fire discrete taps. A gesture with a *threshold* — slide-to-pay, drag-to-commit, a sheet nearing a detent — wants resistance that **builds**, which needs `CHHapticAdvancedPatternPlayer`. Gate the whole thing on `CHHapticEngine.capabilitiesForHardware().supportsHaptics` and keep the `UIFeedbackGenerator` path as the fallback.
+
+- **A `hapticContinuous` event reads as a long press, not as an event.** *(headline)* A sustained waveform is literally what a long-press feels like, so a "rich" pattern — a 110ms rumble plus four staggered transients — lands as one buzz rather than a thing happening. Morph landings, toggles and commits want **one clean `hapticTransient`**; reserve continuous events for a gesture that is genuinely still in progress.
+- **Modulate a running player; don't re-fire patterns.** Start one long continuous event on gesture begin, then push `sendParameters([CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: …)], atTime: CHHapticTimeImmediate)` each frame from the drag's progress (`0.08 → 0.63` intensity, `0.20 → 0.75` sharpness works). Re-triggering a pattern per frame stutters; modulating one player is continuous and is what makes a track feel like it tightens under the thumb.
+- **Prime on appear, or the first beat is late.** `try engine.start()` plus `.prepare()` on every generator in `onAppear`. An un-primed Taptic engine costs enough warm-up that the first tap of a session reads as lag — the most common reason otherwise-good haptics feel loose.
+- **Set `resetHandler` and fail silent.** The system can take the engine away (incoming call, Siri). Restart it in `resetHandler`, call `try engine.start()` before every play, and swallow the throw — a dead engine must never surface as a crash in a decorative layer.
+
 **SourceKit `HapticFeedback` false positive — always ignore:**
 In files written to `Carousels/` or `Animations/`, SourceKit reports `Cannot find 'HapticFeedback' in scope`. This is **not a real error** — SourceKit analyzes the new file in isolation and doesn't see other module members. `HapticFeedback.swift` is registered in the Sources build phase; the real compiler resolves it correctly. Do not add `import UIKit`, do not re-declare the struct, do not alter the code.
 
@@ -232,6 +244,12 @@ In files written to `Carousels/` or `Animations/`, SourceKit reports `Cannot fin
 The result is a soft, color-tinted halo instead of a neutral drop shadow — reserve it for hero cards (front of a deck, selected item), not every row, since it's a duplicate render of the image. Works for any image-backed card — poster, album art, product photo.
 
 **Gradients:** two-tone only · blob fill `[.white, Color(white: 0.88)]` · progress `[cyan, green]`
+
+**Interpolate a multi-hue ramp in OKLCH, never sRGB or HSB.** A straight line between two saturated colours in sRGB passes through the low-chroma centre of the colour cube, so every midpoint desaturates — the "muddy gradient". HSB keeps the hue but not perceptual lightness, so the ramp pulses bright and dark as it travels. Convert to OKLab, take the polar form, interpolate `L`/`C` linearly and `H` along the **shorter arc**, convert back. Cache the resolved ramp per palette; it is far too expensive per frame.
+
+**A `LinearGradient` blends on one axis only** — that single direction is why a many-stop ramp still reads as a ramp rather than as light. `MeshGradient` (iOS 18+) blends multi-directionally; drift the **interior** control points for a living surface, but keep corners pinned and let edge points slide **only along their own edge** — a border point that leaves its edge tears the mesh.
+
+**Blur is a fraction of its host, never a fixed radius.** A 26pt blur is gentle across a phone screen and total erasure inside a 50pt capsule. Express it as `height * k` (≈`0.07` core / `0.16` mid / `0.30` bloom) so one component survives being reused at a different scale.
 
 ---
 
@@ -540,6 +558,7 @@ extension View {
 
 Non-obvious rules baked in:
 - **`.simultaneousGesture`** (not `.gesture`) so a row inside a `ScrollView`/`List` still scrolls.
+- **…but `simultaneousGesture` is not enough inside a *horizontal* `ScrollView`.** At `minimumDistance: 0` the child still claims the touch sequence and the row refuses to pan. For chips and pills in a scrolling rail use a real `Button` with a custom `ButtonStyle` instead: the button defers to the scroll view, cancels when the finger travels, and `onChange(of: configuration.isPressed)` still fires a haptic on the down edge.
 - **Haptic on the down edge only** (`if !isPressed`) — not on every `onChanged` tick.
 - **Lift-inside-to-fire** — verify the finger lifted within ~20pt before running `action`; a drag-away must cancel.
 - `pressedScale` ≈ `0.90` for round icon buttons, ≈ `0.965` for wide rows.
@@ -682,6 +701,18 @@ HStack(alignment: .firstTextBaseline, spacing: 1) {
 
 When the transition is driven by a discrete step (card carousel, dial tick): use `selectionChanged` haptic, not `mediumImpact` — it matches the numeric ticker feel.
 
+**A child larger than its container silently resizes the stack — and `.frame(maxWidth: .infinity)` does not clamp it.** *(headline)* A `ZStack` sizes to its widest child, and under a **nil proposal** a flexible frame still reports the child's *ideal* size — so a 460pt bloom inside a 402pt screen grows the stack to 460, which then re-centres and drags every sibling ~29pt sideways. Decorative layers that are deliberately oversized (blooms, sheens, scrims, particle fields) belong in `.overlay`/`.background`, which are sized to the host and never report a size back.
+
+**`.frame(w:h:)` crops; it does not re-layout.** Putting a frame on an already-oversized stack *looks* like it fixed the overflow, but the children were laid out at the larger size and the frame merely centres and clips them — content at the edges silently disappears off-screen. The fix is always structural (move the oversized layer into an overlay), never a frame.
+
+**Read a drag that moves its own view in a NAMED coordinate space.** `DragGesture` defaults to `.local`; if the gesture is attached to a slider handle, sheet or card that travels under the finger, `translation` is measured against a frame that is itself sliding and under-reports badly — a 318pt drag can report 165pt and never cross its threshold. Declare `.coordinateSpace(name:)` on a **static** ancestor and read `value.location`, not `translation`.
+
+**A parent `.onTapGesture` swallows a child `DragGesture` whole.** A tap-to-dismiss on a container will stop a handle inside it from moving at all, with no warning. Scope the tap to the smallest view that needs it.
+
+**`Path` unions by default — punched holes need `FillStyle(eoFill: true)`.** Adding a circle to a rounded-rect path makes it bulge *outward*, not bite in; it often looks plausible because nothing is drawn in the bulge. Clip with even-odd, and apply any border **before** the clip so the cut-outs break the edge line too.
+
+**One ambient `.animation(_:value:)` competes with every explicit `withAnimation` on that value.** The two springs fight and the slower one is often discarded entirely, so a carefully choreographed morph snaps. Pick one: either drive every mutation with its own `withAnimation`, or use the ambient modifier — never both on the same state.
+
 **File layout (mandatory MARK order):**
 ```
 // MARK: - Model
@@ -709,6 +740,8 @@ The archetype drives physics, haptics, and container defaults. Pick the closest 
 | **Loading Indicator** | "loading", "spinner", "progress", "scanning" | inline | `.linear(duration:)` | none |
 | **3D Object Showcase** | "3D", "SceneKit", "spin the cover", "album", "boxed product" | embedded or full-screen | SceneKit rig, `SCNTransaction.disableActions` for driven properties (never spring) | selectionChanged per settle / none if passive |
 | **Coach-Mark Tour** | "tour", "coach mark", "spotlight", "walkthrough", "onboarding tooltip" | clear `fullScreenCover`, presented once | cutout glide `.spring(0.5/0.86)`, bubble `.opacity` cross-fade, `.easeInOut(0.25)` fade-out | none (selectionChanged on Next at most) |
+| **Audio-Reactive** | "voice", "mic", "waveform", "visualiser", "sound-reactive", "listening" | inline or full-screen | `TimelineView` clock (never spring) | none — the signal *is* the feedback |
+| **Stacked Sheets** | "bottom sheet", "detent", "half sheet", "stack", "push back", "drawer" | bottom-aligned ZStack | velocity projection → `.interpolatingSpring(340, 34)` | selectionChanged per detent crossing |
 | **Card Pack Reveal** | "pack", "tear open", "card flip", "reveal", "unbox", "foil" | full-screen | `.easeInOut` tear + `.spring(0.6/0.7)` flip + `TimelineView` clock for Canvas effects | heavy on tear, medium on flip, success on rare |
 
 Print the resolved archetype on the `🎯  Archetype:` line. If the user's prompt overrides any default in this table, use their value and note the override in parentheses.
@@ -1197,6 +1230,18 @@ Non-obvious rules — each one is a real trap:
 
 ---
 
+## Audio-Reactive UI (AVAudioEngine + Accelerate FFT)
+
+A glow, waveform or orb driven by a single RMS number can only make every element rise and fall together. Splitting the signal into bands is what separates *listening* from *pulsing*.
+
+- **Three bands, three envelopes — never one RMS.** *(headline)* Run a 1024-point FFT (`vDSP_fft_zrip`, Hann window) and sum magnitudes into **chest** 80–350Hz, **vowels** 350–2000Hz, **sibilance** 2000–7000Hz, each with its own gate and envelope follower. Map them across the visual — centre elements to chest, edges to sibilance — and a hiss lights different parts than a low vowel. One shared level cannot express that, no matter how the elements are staggered.
+- **Tilt the highs or sibilance never registers.** Speech carries far less energy above 2kHz; multiply the bands by roughly `1.0 / 1.8 / 3.4` before the gate or consonants are swallowed by the noise floor.
+- **Gate, then follow, per band.** `gain → gate → envelope` with separate rise and fall coefficients (`attack ≈ 0.5`, `release ≈ 0.1`) **per band**, so a shout rounds off instead of clipping and a band decays on its own schedule.
+- **Tap on the audio thread, publish on the main actor.** `installTap(onBus:bufferSize:format:)` runs off-main; compute the FFT there and hop with `Task { @MainActor in … }`. Reading `AVAudioSession` sample rate from the input format (never a hardcoded 44.1k) keeps the bin→Hz maths right on every device.
+- **`NSMicrophoneUsageDescription` or it hard-crashes.** With `GENERATE_INFOPLIST_FILE = YES` that means adding `INFOPLIST_KEY_NSMicrophoneUsageDescription` to **every** build configuration — and the Simulator's input is unreliable, so a manual `level` override is required for development.
+
+---
+
 ## SceneKit 3D Object Showcase
 
 For a **real 3D object** (an album cover, a book, a boxed product) that tilts/rotates in response to scroll or touch — not a fake `rotation3DEffect` pseudo-3D — embed an `SCNScene` via `UIViewRepresentable` and drive it from SwiftUI state.
@@ -1282,6 +1327,8 @@ context.draw(cgImage, in: CGRect(x: 0, y: 0, width: sampleSize, height: sampleSi
 
 An in-app view can *mimic* the Dynamic Island (morph, glass, gestures) — but to render in the **actual** Dynamic Island + Lock Screen you need **ActivityKit + a Widget Extension**, and the rules are nothing like an in-app SwiftUI view. Build the mimic for the micro-interaction; build a Live Activity when it must live in the real island.
 
+- **A mimicked island cannot live at the real island's coordinates.** The cutout is hardware: anything drawn at the top-centre of the screen is physically covered by it, so an in-app recreation renders but cannot be seen. Demo one inside a **device mockup** — a rounded frame with its own bezel, status bar and island — and scale the island metrics off the mockup width (`deviceW / 402`) so the proportions stay true. Hide the mock status bar while the island is expanded, exactly as the OS does.
+
 - **It requires a separate Widget Extension target — not a view.** Declare `struct XAttributes: ActivityAttributes` (with a `ContentState`), add an `ActivityConfiguration(for:)` + `DynamicIsland { }` DSL in a **WidgetKit extension**, set `NSSupportsLiveActivities = true` in the app's Info.plist, and the app calls `Activity.request / update / end`. There's no CLI to scaffold the target — use Xcode's *File → New → Target → Widget Extension* (check "Include Live Activity").
 - **WidgetKit ≠ in-app SwiftUI: no gestures, no continuous animation, no custom springs.** *(headline)* The compact↔expanded **morph is the system's** (genuine Liquid Glass on iOS 26) — you only supply each region's content. Interactivity is **App-Intent Buttons only** (`Button(intent:)` backed by a `LiveActivityIntent`), never `DragGesture`/`onTapGesture`. A scrubber can't be dragged; a progress bar only advances on a *pushed* state update. No `TimelineView` 60 fps loop. So the drag / rubber-band / live-equalizer micro-interaction stays **in-app**; the island is a declarative status display.
 - **Artwork memory budget is the #1 blank-island gotcha.** *(headline)* A Live Activity extension has a hard ~30 MB memory limit. A full-res photo (`4000×6000` ≈ 96 MB decoded) **silently fails to render → grey placeholder box** — no crash, no error. Ship artwork at ~**400×400** (it displays tiny). This is the single most common "why is my island art blank."
@@ -1325,6 +1372,19 @@ The iOS 26 signature: a floating glass tab bar whose search button morphs into a
 - **Delay keyboard focus until after the morph settles.** Auto-focusing the field mid-morph shoots the keyboard up and steals the transition — schedule `@FocusState = true` *after* the morph spring (e.g. `+0.6s` for a slow morph) so the circle→field morph plays first.
 - **Slow the morph so it's felt** (spring `response ≈ 0.95`), and respect the fusion-threshold rule (`layoutGap > containerSpacing + 6`) so the bar and search circle don't bleed into each other at rest.
 - **Proper tab-bar feel:** icons only, each `.frame(maxWidth: .infinity)` so they spread evenly (no dead space); show selection with a soft circle behind the icon, not a text label.
+
+---
+
+## Bottom Sheet Physics (detents, projection, stacking)
+
+`.presentationDetents` covers the ordinary case. Hand-roll only when sheets must **stack** — one opening from another and pushing it back — or when the content must morph continuously between detents.
+
+- **Velocity decides the destination, not position.** *(headline)* Snapping to whichever detent is nearest the finger makes a short fast flick lose to a long slow drag, which is the single clearest tell of a hand-rolled sheet. Project where it *would* come to rest with UIKit's own constant — `(velocity / 1000) * d / (1 - d)` at `d = 0.998` — and snap to the detent nearest **that** point.
+- **Rubber-band past both ends; never clamp.** `(1 - (1 / ((over * 0.55 / limit) + 1))) * limit` with Apple's `0.55` coefficient. A sheet that stops dead at its limit feels broken; one that stops dead *above* its detent looks unanchored, so resist upward travel (`×0.18`) even when there is nowhere to go.
+- **Derive everything from one continuous height.** Keep the live sheet height as the single source of truth and compute each stage as its own ramp (`p1` = peek→half, `p2` = half→full). One number to scrub means the drag, the spring and the content choreography can never disagree.
+- **Never insert content conditionally.** `if progress > 0.1 { rows }` changes the stack's height the instant it flips, and that pop is the most common fault in a hand-rolled sheet. Keep every element in the hierarchy at every detent and animate only opacity, scale and offset.
+- **Recede is a function of depth below the top, not a per-sheet flag.** With a stack, drive `scale`, `offset`, `radius` and `brightness` from `depth = count - 1 - index` — one expression, so pushing a third sheet nudges the first further back for free and nothing has to be kept in sync.
+- **Corners GROW as a card recedes** (≈`20 + 6 × depth`). A card behind another needs a *larger* radius for the two to read as concentric; equal radii is what makes a stack look pasted together.
 
 ---
 
@@ -1378,7 +1438,7 @@ A tour that dims the screen, punches out one real control, and points a tooltip 
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.25.0
+⚙️  swiftui-microinteractions v1.26.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>
