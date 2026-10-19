@@ -1997,8 +1997,10 @@ private func showToast(_ name: String) {
 }
 
 .overlay(alignment: .top) {
-    Group { if let name = toastItem { toastCapsule(name).transition(.widthPop)  // see Custom Transitions — widthPop } }
-        .animation(FlowSpring.pop, value: toastItem)   // key on the OPTIONAL's identity
+    Group {
+        if let name = toastItem { toastCapsule(name).transition(.widthPop) }  // see Custom Transitions — widthPop
+    }
+    .animation(FlowSpring.pop, value: toastItem)   // key on the OPTIONAL's identity
 }
 ```
 
