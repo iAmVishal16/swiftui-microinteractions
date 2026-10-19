@@ -13,6 +13,7 @@ Generate a complete, compilable SwiftUI animation file in the legendary-Animo st
 - Building a Canvas loader that traces a shape outline with a comet trail (infinity, star, polygon…)
 - Morphing a flat grid of elements into a faux-3D spinning form (drum, globe, helix) and back
 - Building a card-reveal pack (swipe-to-tear, 3D card flip, staggered stat fills) or Canvas power-effect showcase
+- Building an onboarding spotlight tour / coach marks that walk the user across real controls (dim scrim, cutout, pointing tooltip)
 - Building a photo viewer / immersive pager where a caption, a thumbnail strip and the chrome all follow one continuous position
 - Building a focus-scaled thumbnail strip or filmstrip scrubber that both reads *and* drives a pager
 - Scaffolding a multi-screen flow (onboarding → browse → detail → checkout → tracking) with one shared motion token set
@@ -213,24 +214,32 @@ Apply the same gate (without rearm, since it only happens once) to the touch-dow
 
 Every driver reports identically, including one tick per page passed mid-fling — because the trigger is "the landed page changed," which is true regardless of what moved it. Reach for a gesture-local haptic only for things that have no derived state to watch (touch-down, threshold crossings).
 
-**Re-arm the generator immediately after every hit.** `UIImpactFeedbackGenerator` powers down its Taptic Engine within about a second of being prepared, and the first hit after that is measurably late. Call `prepare()` in `onAppear` *and* again right after each `impactOccurred()`:
+**Re-arm the generator immediately after every hit.** `UIImpactFeedbackGenerator` powers down its Taptic Engine on the order of seconds after being prepared, and the first hit after that is measurably late. Call `prepare()` in `onAppear` *and* again right after each `impactOccurred()`:
 
 ```swift
+@MainActor
 enum Haptics {
     private static let light = UIImpactFeedbackGenerator(style: .light)
+    private static let medium = UIImpactFeedbackGenerator(style: .medium)
     private static let rigid = UIImpactFeedbackGenerator(style: .rigid)
     private static let selection = UISelectionFeedbackGenerator()
     private static let notification = UINotificationFeedbackGenerator()
 
-    static func prepare() { light.prepare(); selection.prepare() }                 // call in onAppear
-    static func tap()   { light.impactOccurred(); light.prepare() }                // re-arm
-    static func tick()  { selection.selectionChanged(); selection.prepare() }
-    static func thud()  { rigid.impactOccurred(intensity: 0.7); rigid.prepare() }  // firm, not harsh
-    static func success() { notification.notificationOccurred(.success) }          // no prepare needed
+    static func prepare() {
+        light.prepare(); medium.prepare(); rigid.prepare()
+        selection.prepare(); notification.prepare()
+    }                                                                              // call in onAppear
+    static func tap()    { light.impactOccurred(); light.prepare() }               // re-arm
+    static func tick()   { selection.selectionChanged(); selection.prepare() }
+    static func commit() { medium.impactOccurred(); medium.prepare() }             // staged CTA acknowledge
+    static func thud()   { rigid.impactOccurred(intensity: 0.7); rigid.prepare() } // firm, not harsh
+    static func success() {
+        notification.notificationOccurred(.success); notification.prepare()
+    }
 }
 ```
 
-`impactOccurred(intensity:)` is the knob for "firm but not a slap" — `.rigid` at `0.7` is a confirmation, `.heavy` at full is a destruction. `UINotificationFeedbackGenerator` has no meaningful prepare cost, so reserve `.success` for the one moment per flow that actually completed something.
+`impactOccurred(intensity:)` is the knob for "firm but not a slap" — `.rigid` at `0.7` is a confirmation, `.heavy` at full is a destruction. `prepare()` applies to every `UIFeedbackGenerator` subclass the same way — including `UINotificationFeedbackGenerator` — so re-arm after `.success` too. Reserve `.success` for the one moment per flow that actually completed something.
 
 **Let a departure haptic land before the screen changes.** A `NavigationStack` push or a full-screen transition starting on the same frame as the haptic swallows it and the user feels nothing. Fire, then navigate ~0.18–0.2s later:
 
@@ -584,7 +593,7 @@ Never use bare `.spring()` — always explicit `response` + `dampingFraction`. I
 
 ## Press Feedback — `PressableScale`
 
-Every tappable row/button should shrink under the finger and feel like a real press. Use a **gesture-driven** modifier, not `Button`/`ButtonStyle` — `ButtonStyle.isPressed` cannot fire a haptic on the press-*down* edge, but a `DragGesture(minimumDistance: 0)` can.
+Every tappable row/button should shrink under the finger and feel like a real press. Two workable shapes: a **gesture-driven** `PressableScale` modifier (lift-inside-to-fire, scroll coexistence), or a **`ButtonStyle` + `.sensoryFeedback`** when you want real `Button` accessibility semantics — `configuration.isPressed` *does* flip on touch-down, so the down-edge haptic works either way. Pick on purpose; don't stack both.
 
 ```swift
 private struct PressableScale: ViewModifier {
@@ -868,6 +877,7 @@ The archetype drives physics, haptics, and container defaults. Pick the closest 
 | **Metal Shader** | "liquid chrome", "molten metal", "holographic", "plasma", "shader" | full-screen | `TimelineView` clock (never spring) | lightImpact on touch |
 | **Loading Indicator** | "loading", "spinner", "progress", "scanning" | inline | `.linear(duration:)` | none |
 | **3D Object Showcase** | "3D", "SceneKit", "spin the cover", "album", "boxed product" | embedded or full-screen | SceneKit rig, `SCNTransaction.disableActions` for driven properties (never spring) | selectionChanged per settle / none if passive |
+| **Coach-Mark Tour** | "tour", "coach mark", "spotlight", "walkthrough", "onboarding tooltip" | clear `fullScreenCover`, presented once | cutout glide `.spring(0.5/0.86)`, bubble `.opacity` cross-fade, `.easeInOut(0.25)` fade-out | none (selectionChanged on Next at most) |
 | **Card Pack Reveal** | "pack", "tear open", "card flip", "reveal", "unbox", "foil" | full-screen | `.easeInOut` tear + `.spring(0.6/0.7)` flip + `TimelineView` clock for Canvas effects | heavy on tear, medium on flip, success on rare |
 | **Fractional Pager** | "photo viewer", "gallery", "lightbox", "swipe through", "filmstrip", "immersive", "thumbnail strip" | full-screen | page `.spring(0.42/0.72)` + chrome `.spring(duration: 0.6, bounce: 0.08)`; unanimated during drag | `.selection` on the derived index · `.impact(.medium)` on the chrome toggle |
 | **Multi-Screen Flow** | "app flow", "onboarding to checkout", "full app", "5 screens", "ordering flow" | `NavigationStack(path:)` + route enum | one named spring token set reused per screen | light on taps · tick on steppers/chips · medium on commit · success once per flow |
@@ -1326,7 +1336,7 @@ Color.clear
 - **The row hangs in an `.overlay` over a `Color.clear` spacer, never as a ZStack peer.** An overlay never reports its size back to its parent; a plain `HStack` far wider than the screen pushes that width up through the ZStack and shoves the chrome buttons off either edge.
 - **`.contentShape(Rectangle())` on the composed view** so a drag that starts on a thumbnail hanging *outside* the row's own bounds is still picked up.
 - `.allowsHitTesting(isPresented)` — a strip parked off-screen is still mounted and would keep swallowing taps and drags along the bottom of the immersive view.
-- **`.onGeometryChange` is iOS 18+.** It's the right tool here — it reports a value without the extra layout pass a nested `GeometryReader` costs, and without a `PreferenceKey`'s stale-first-frame problem. Below iOS 18, wrap the `Color.clear` spacer in a `GeometryReader` and assign `stripWidth` from its `proxy.size.width`.
+- **`.onGeometryChange` (Xcode 16 SDK; back-deployed to iOS 16).** It's the right tool here — it reports a value without the extra layout pass a nested `GeometryReader` costs, and without a `PreferenceKey`'s stale-first-frame problem.
 
 ### Centre-out ring stagger for enter/exit
 
@@ -1835,6 +1845,20 @@ A flat grid of dots (QR code, avatar wall, calendar) that peels off the plane, g
 
 ---
 
+## Spotlight Coach-Mark Tour (one overlay, gliding cutout)
+
+A tour that dims the screen, punches out one real control, and points a tooltip at it with **Next** / **End tour** — stepping across controls owned by different views (tab bar, FAB, cards).
+
+- **One presentation for the whole tour; a step change is a layout change.** *(headline)* Presenting a coach mark per step makes every Next read as a screen dismissing — the scrim blinks and the bubble slides down and back up. Present once (clear-backed `fullScreenCover`, shown and removed inside a `Transaction` with `disablesAnimations = true`), then change only the target inside `withAnimation(.spring(response: 0.5, dampingFraction: 0.86))`: the cutout's frame animates, so it **glides** from control to control.
+- **Cross-fade the bubble, glide the cutout.** Re-identify the tooltip per step (`.id(message)` + `.transition(.opacity)`) so it fades out in place and in at its new spot while the cutout moves. Springing the bubble's position instead smears the text across the screen mid-flight.
+- **Leave by fading, never by dismissing.** End tour → `isVisible = false` → `.easeInOut(0.25)` opacity → *then* remove the cover without animation, *then* run any follow-up action. First appearance mirrors it: cover appears unanimated, the overlay fades its own opacity in.
+- **Global frames, collected above all chrome.** Anchors report `proxy.frame(in: .global)` through a `PreferenceKey` (the cover is its own window). Attach `onPreferenceChange` at the screen root: a tab bar or FAB outside the `ScrollView` never reaches a reader on the scroll content. Anchor the tappable control, not its full-width wrapper.
+- **Two `GeometryReader`s.** The inner one `.ignoresSafeArea()` so its space matches the global frames; it then reports zero insets, so read `safeAreaInsets` from an outer reader that keeps the safe area.
+- **Bubble on the roomier side, measured inside the safe area.** `spaceAbove = minY − safeTop`, `spaceBelow = height − safeBottom − maxY`, below if larger. Clamp x to a 16pt margin, then set the pointer from where the target's midX lands across the bubble (`<0.33` leading, `>0.67` trailing) so the arrow still hits the control when the bubble is pinned to an edge. Anchor the bubble to the edge facing the target inside a frame that stops `gap` short of it, so variable-height text never covers the cutout.
+- **Cutout fit.** Round controls (a "+", a centre tab-bar button) get a radius ≥ half their side; text targets get separate x/y insets (≈10 × 6pt) because their frame hugs the glyphs. A target that isn't laid out is skipped — never spotlight a zero rect — and Next advances past the step actually shown, not the stored index + 1.
+- **Inert scrim, live cutout.** Scrim taps do nothing (`contentShape` + empty tap) so a card can't be lost by accident. The cover can't pass touches through, so lay a near-transparent hit shape over the cutout that runs the control's real action *after* the fade, and resume at the next step when the user returns.
+- **End tour is the quiet action.** Bold, underlined, ~0.8 white, no chrome — next to a pill primary that needs no drop shadow on an 0.8 black scrim. Only run the tour while its host screen is frontmost (no sheet, pushed screen or paywall over it), or it anchors to stale frames.
+
 ## Multi-Screen Flows (tokens, routes, staged commits)
 
 Everything above generates one screen. When a prompt asks for a **flow** — onboarding → browse → detail → checkout → tracking — the animation work doesn't change, but three things have to be established *once* up front or the screens drift apart visually within two files.
@@ -1875,6 +1899,11 @@ NavigationStack(path: $path) {
             case .detail(let item):
                 DetailView(item: item, onBack: { path.removeLast() },
                            onBuy: { size, qty in path.append(Route.order(item, size, qty)) })
+                    .navigationBarBackButtonHidden()
+            case .order(let item, let size, let qty):
+                OrderView(item: item, size: size, quantity: qty,
+                          onBack: { path.removeLast() },
+                          onPlaced: { path.append(Route.tracking) })
                     .navigationBarBackButtonHidden()
             case .tracking:
                 TrackingView(onClose: { path = NavigationPath() })   // unwind to root
@@ -1968,7 +1997,7 @@ private func showToast(_ name: String) {
 }
 
 .overlay(alignment: .top) {
-    Group { if let name = toastItem { toastCapsule(name).transition(.widthPop) } }
+    Group { if let name = toastItem { toastCapsule(name).transition(.widthPop)  // see Custom Transitions — widthPop } }
         .animation(FlowSpring.pop, value: toastItem)   // key on the OPTIONAL's identity
 }
 ```
@@ -2033,11 +2062,11 @@ Map(position: $cameraPosition) {
 - **A dotted route is `dash: [1, 10]` with `lineCap: .round`** — a 1pt dash with a round cap draws a *dot*, and 10pt of gap is what makes it read as a route hint rather than a drawn road. A plain solid polyline looks like a highway overlay.
 - **Lerp the courier between endpoints from one `progress` float** — the annotation follows for free, and `progress` is also what the progress bar, the ETA and the status enum read. Same single-source-of-truth rule as the fractional pager.
 - **`MapCameraPosition` must be seeded in `init`**, not `onAppear` — a `@State` default of `.automatic` frames the world for one frame before snapping, which is visible. Compute the midpoint region and `_cameraPosition = State(initialValue: .region(region))`.
-- **The pulse ring animates its `frame`, not a `scaleEffect`** on a shared circle — an annotation's content is re-laid-out by MapKit as the camera moves, and a scale transform on it fights that. `withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) { pulse = true }` in `onAppear`.
+- **Prefer animating the pulse ring's `frame` over a `scaleEffect`** on a shared circle — in practice MapKit re-lays out annotation content as the camera moves, and a scale transform can fight that. Drive it with `withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) { pulse = true }` in `onAppear` (and prefer a `.task` loop if you need cancellation when the view goes away — see **Loop driver**).
 - **ETA is derived, never stored:** `max(1, Int((1 - progress) * 18))` with `.contentTransition(.numericText())` — it can't disagree with the bar.
 - **Progress bar cap dot offsets by half its own width:** `.offset(x: geo.size.width * progress - 8)` for a 16pt dot, with a 3pt white ring so it reads as a handle over the filled track. (Same centring rule as **Ring Gauges**.)
 - **Status steps light up from a comparison, not a second state:** `let isDone = step.rawValue <= status.rawValue` over `DeliveryStatus.allCases`, with `.animation(FlowSpring.snap, value: status)` on the row.
-- **Prefer a `.task` loop to `Timer.scheduledTimer` for the simulation.** A `.task` is cancelled automatically when the view goes away; a `Timer` keeps firing into a dead view unless every exit path reaches `timer.invalidate()`. If a `Timer` is genuinely needed, invalidate it at the terminal state *and* in `onDisappear`.
+- **Prefer a `.task` loop to `Timer.scheduledTimer` for the simulation** (same rule as **Loop driver — use `.task`, not `Timer`**). A `.task` cancels when the view goes away; if a `Timer` is genuinely needed, invalidate it at the terminal state *and* in `onDisappear`.
 
 ---
 
@@ -2046,7 +2075,7 @@ Map(position: $cameraPosition) {
 Stream these progress lines one by one:
 
 ```
-⚙️  swiftui-microinteractions v1.25.0
+⚙️  swiftui-microinteractions v1.26.0
 🖼️  Assets: <found: name1, name2… · or · none found, using placeholders>
 🎯  Archetype: <archetype name>
 ⚡  Physics: <spring preset and why — one phrase>
