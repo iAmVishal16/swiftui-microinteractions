@@ -6,6 +6,10 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.25.1] — 2026-10-22
+
+Trust-audit cleanup, no change to the animation guidance. The **Pro edition upsell** footer is removed from `SKILL.md`, so the agent is never told to promote a paid product (Pro stays in the README). **Step 2 — Xcode project registration** is now a plain description of the four `project.pbxproj` entries, replacing the embedded `find` command and Python script. A new **Scope & Safety** section says the skill writes only inside the current project, with no network access, package installs or shell scripts.
+
 ## [1.25.0] — 2026-10-03
 
 Adds a **Spotlight Coach-Mark Tour** section and a **Coach-Mark Tour** archetype row. The headline rule: present the overlay **once** for the whole tour and treat Next as a layout change, so the cutout **glides** between controls on a `0.5/0.86` spring while the bubble cross-fades (`.id(message)` + `.opacity`). Presenting per step reads as a screen dismissing. Also covers: leaving by fade-then-remove, never a system dismissal; global anchor frames collected at the screen root so tab bars and FABs outside the `ScrollView` are seen; the two-`GeometryReader` safe-area split; bubble on the roomier side measured inside the safe area, with an edge-clamped pointer; cutout fit for round controls and text targets; skip-unlaid-out-steps without repeating a card; inert scrim with a live cutout that runs the real control's action after the fade; and the quiet End tour action. Teardown note: `notes/2026-10-03-spotlight-coach-mark-tour.md` (Pro).
